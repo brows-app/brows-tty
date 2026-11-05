@@ -1,0 +1,20 @@
+﻿<Project>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/ghostty-vt.dll"
+          Link="runtimes/win-x64/native/ghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/brows-ghostty.dll"
+          Link="runtimes/win-x64/native/brows-ghostty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/native/ghostty-vt.dll"
+          Link="runtimes/win-arm64/native/ghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/native/brows-ghostty.dll"
+          Link="runtimes/win-arm64/native/brows-ghostty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+  </ItemGroup>
+</Project>

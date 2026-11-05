@@ -1,0 +1,125 @@
+name: Workflow
+
+on:
+  push:
+    branches: [ dev ]
+  release:
+    types: [ published ]
+
+permissions:
+  contents: read
+  id-token: write
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  workflow:
+    name: Build, test, pack, and push
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Version
+        env:
+          RELEASE_NAME: ${{ github.event.release.name }}
+        run: |
+          if ($env:GITHUB_EVENT_NAME -eq 'release') {
+            $version = $env:RELEASE_NAME.Trim()
+          }
+          else {
+            [xml] $props = Get-Content Directory.Build.props -Raw
+            $version = [string] $props.Project.PropertyGroup.VersionPrefix
+            $suffix = [string] $props.Project.PropertyGroup.VersionSuffix
+            if (![string]::IsNullOrWhiteSpace($suffix)) { $version += "-$suffix" }
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$') {
+            throw "Expected a package version such as 1.2.3 or 1.2.3-beta.1; received '$version'."
+          }
+          "PACKAGE_VERSION=$version" >> $env:GITHUB_ENV
+          Write-Host "Package version: $version"
+
+      - name: Build native libraries and test helpers (x64 and ARM64)
+        run: ./scripts/Build-Native.ps1
+
+      - name: Restore
+        run: dotnet restore brows-tty.slnx "-p:Version=$env:PACKAGE_VERSION"
+
+      - name: Build
+        run: >-
+          dotnet build brows-tty.slnx --no-restore --configuration Release
+          -p:ContinuousIntegrationBuild=true "-p:Version=$env:PACKAGE_VERSION"
+
+      - name: Test .NET Framework (x64)
+        run: >-
+          dotnet test tests/Brows.TTY.Windows.Tests/Brows.TTY.Windows.Tests.csproj
+          --configuration Release --framework net462 --no-build --no-restore
+          --logger trx --results-directory out/test-results/net462
+
+      - name: Test .NET Framework 4.8 (x64)
+        run: >-
+          dotnet test tests/Brows.TTY.Windows.Tests/Brows.TTY.Windows.Tests.csproj
+          --configuration Release --framework net48 --no-build --no-restore
+          --logger trx --results-directory out/test-results/net48
+
+      - name: Test .NET 8 (x64)
+        run: >-
+          dotnet test tests/Brows.TTY.Windows.Tests/Brows.TTY.Windows.Tests.csproj
+          --configuration Release --framework net8.0-windows --no-build --no-restore
+          --logger trx --results-directory out/test-results/net8.0-windows
+
+      - name: Test .NET 10 (x64)
+        run: >-
+          dotnet test tests/Brows.TTY.Windows.Tests/Brows.TTY.Windows.Tests.csproj
+          --configuration Release --framework net10.0-windows --no-build --no-restore
+          --logger trx --results-directory out/test-results/net10.0-windows
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: out/test-results/**/*.trx
+
+      - name: Pack
+        run: >-
+          dotnet pack brows-tty.slnx --no-restore --configuration Release --no-build
+          -p:ContinuousIntegrationBuild=true "-p:Version=$env:PACKAGE_VERSION"
+
+      - name: Verify packages and consuming applications
+        run: ./scripts/Verify-Package.ps1 -Version $env:PACKAGE_VERSION
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            out/package/release/*.nupkg
+            out/package/release/*.snupkg
+          if-no-files-found: error
+
+      - name: NuGet login (OIDC)
+        if: github.event_name == 'release'
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: Push
+        if: github.event_name == 'release'
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: |
+          foreach ($packageId in @('Brows.TTY', 'Brows.TTY.Win32', 'Brows.TTY.Windows')) {
+            $package = "out/package/release/$packageId.$env:PACKAGE_VERSION.nupkg"
+            dotnet nuget push $package --api-key $env:NUGET_API_KEY `
+              --source https://api.nuget.org/v3/index.json --skip-duplicate
+            if ($LASTEXITCODE -ne 0) { throw "Publishing $packageId failed." }
+          }

@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../source/Brows.TTY.Windows/Brows.TTY.Windows.csproj" />
+    <ProjectReference Include="../../samples/Brows.TTY.Sample/Brows.TTY.Sample.csproj" />
+    <None Include="../../out/native-tests/*/color-query.exe"
+          Link="helpers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../out/native-tests/*/key-echo.exe"
+          Link="helpers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

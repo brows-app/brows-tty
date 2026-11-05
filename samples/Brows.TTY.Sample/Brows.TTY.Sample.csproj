@@ -1,0 +1,5 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../source/Brows.TTY.Windows/Brows.TTY.Windows.csproj" />
+  </ItemGroup>
+</Project>

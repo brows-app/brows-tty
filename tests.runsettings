@@ -1,0 +1,7 @@
+﻿<RunSettings>
+  <RunConfiguration>
+    <!-- WPF owns process-wide rendering state; isolate tests in testhost processes, not unloadable AppDomains. -->
+    <DisableAppDomain>true</DisableAppDomain>
+    <TreatNoTestsAsError>true</TreatNoTestsAsError>
+  </RunConfiguration>
+</RunSettings>

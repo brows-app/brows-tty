@@ -1,0 +1,35 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Brows.TTY</PackageId>
+    <PackageTags>terminal;ghostty</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="buildTransitive/Brows.TTY.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="../../out/native/win-x64/bin/ghostty-vt.dll"
+          Link="runtimes/win-x64/native/ghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../out/native/win-x64/bin/brows-ghostty.dll"
+          Link="runtimes/win-x64/native/brows-ghostty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../out/native/win-arm64/bin/ghostty-vt.dll"
+          Link="runtimes/win-arm64/native/ghostty-vt.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" />
+    <None Include="../../out/native/win-arm64/bin/brows-ghostty.dll"
+          Link="runtimes/win-arm64/native/brows-ghostty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" />
+  </ItemGroup>
+  <Target Name="ValidateNativePackageAssets" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('../../out/native/win-x64/bin/ghostty-vt.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-x64/ghostty-vt.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-x64/bin/brows-ghostty.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-x64/brows-ghostty.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-arm64/bin/ghostty-vt.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-arm64/ghostty-vt.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-arm64/bin/brows-ghostty.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-arm64/brows-ghostty.dll is missing." />
+  </Target>
+</Project>

@@ -1,0 +1,11 @@
+{
+  "ghosttyRepository": "https://github.com/ghostty-org/ghostty.git",
+  "ghosttyCommit": "e95bed63330cc921f3cf2fe3d14e024396b09d43",
+  "ghosttyVersion": "1.4.1-dev",
+  "zigVersion": "0.17.0",
+  "zigWindowsX64Url": "https://ziglang.org/download/0.17.0/zig-x86_64-windows-0.17.0.zip",
+  "zigWindowsX64Sha256": "b5663f69581dcf391293fbf16c06cb80d81d806545ce618b4d0bab7f0eb8c428",
+  "conptyVersion": "1.25.260930003",
+  "conptyPackageUrl": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.console.conpty/1.25.260930003/microsoft.windows.console.conpty.1.25.260930003.nupkg",
+  "conptyPackageSha256": "02b07b349af66d801159bdf9e440d4a1ce78bb951f37fc8609731665afdae7ee"
+}

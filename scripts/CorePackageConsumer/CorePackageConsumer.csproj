@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net462;net48;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks Condition="'$(TerminalPackageId)' == 'Brows.TTY.Win32'">net462;net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>14</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <TerminalPackageVersion Condition="'$(TerminalPackageVersion)' == ''">0.1.0-alpha</TerminalPackageVersion>
+    <TerminalPackageId Condition="'$(TerminalPackageId)' == ''">Brows.TTY</TerminalPackageId>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="$(TerminalPackageId)" Version="$(TerminalPackageVersion)" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"
+                      Condition="'$(TargetFramework)' == 'net462' or '$(TargetFramework)' == 'net48'" />
+  </ItemGroup>
+</Project>

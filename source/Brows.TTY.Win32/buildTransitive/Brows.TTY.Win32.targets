@@ -1,0 +1,28 @@
+﻿<Project>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/brows-tty-win32.dll"
+          Link="runtimes/win-x64/native/brows-tty-win32.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/conpty.dll"
+          Link="runtimes/win-x64/native/conpty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-x64/native/OpenConsole.exe"
+          Link="runtimes/win-x64/native/OpenConsole.exe"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/native/brows-tty-win32.dll"
+          Link="runtimes/win-arm64/native/brows-tty-win32.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/native/conpty.dll"
+          Link="runtimes/win-arm64/native/conpty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+    <None Include="$(MSBuildThisFileDirectory)../runtimes/win-arm64/native/OpenConsole.exe"
+          Link="runtimes/win-arm64/native/OpenConsole.exe"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Visible="false" Pack="false" />
+  </ItemGroup>
+</Project>

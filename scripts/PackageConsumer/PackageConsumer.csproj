@@ -1,0 +1,17 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net462;net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <UseWPF>true</UseWPF>
+    <OutputType>Exe</OutputType>
+    <Prefer32Bit>false</Prefer32Bit>
+    <LangVersion>14</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
+    <TerminalPackageVersion Condition="'$(TerminalPackageVersion)' == ''">0.1.0-alpha</TerminalPackageVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Brows.TTY.Windows" Version="$(TerminalPackageVersion)" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all"
+                      Condition="'$(TargetFramework)' == 'net462' or '$(TargetFramework)' == 'net48'" />
+  </ItemGroup>
+</Project>

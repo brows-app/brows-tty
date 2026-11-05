@@ -1,0 +1,50 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <PackageId>Brows.TTY.Win32</PackageId>
+    <TargetFrameworks>net462;net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <Description>Windows ConPTY transport for Brows.TTY without a UI framework dependency</Description>
+    <PackageTags>terminal;ghostty;conpty;windows</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="buildTransitive/Brows.TTY.Win32.targets" Pack="true" PackagePath="buildTransitive/" />
+    <ProjectReference Include="../Brows.TTY/Brows.TTY.csproj" />
+    <None Include="../../out/native/win-x64/bin/brows-tty-win32.dll"
+          Link="runtimes/win-x64/native/brows-tty-win32.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../out/native/win-x64/bin/conpty.dll"
+          Link="runtimes/win-x64/native/conpty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../out/native/win-x64/bin/OpenConsole.exe"
+          Link="runtimes/win-x64/native/OpenConsole.exe"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-x64/native/" />
+    <None Include="../../out/native/win-arm64/bin/brows-tty-win32.dll"
+          Link="runtimes/win-arm64/native/brows-tty-win32.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" />
+    <None Include="../../out/native/win-arm64/bin/conpty.dll"
+          Link="runtimes/win-arm64/native/conpty.dll"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" />
+    <None Include="../../out/native/win-arm64/bin/OpenConsole.exe"
+          Link="runtimes/win-arm64/native/OpenConsole.exe"
+          CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"
+          Pack="true" PackagePath="runtimes/win-arm64/native/" />
+  </ItemGroup>
+  <Target Name="ValidateNativePackageAssets" BeforeTargets="GenerateNuspec">
+    <Error Condition="!Exists('../../out/native/win-x64/bin/brows-tty-win32.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-x64/brows-tty-win32.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-x64/bin/conpty.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-x64/conpty.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-x64/bin/OpenConsole.exe')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-x64/OpenConsole.exe is missing." />
+    <Error Condition="!Exists('../../out/native/win-arm64/bin/brows-tty-win32.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-arm64/brows-tty-win32.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-arm64/bin/conpty.dll')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-arm64/conpty.dll is missing." />
+    <Error Condition="!Exists('../../out/native/win-arm64/bin/OpenConsole.exe')"
+           Text="Run scripts/Build-Native.ps1 before packing: win-arm64/OpenConsole.exe is missing." />
+  </Target>
+</Project>

@@ -9,7 +9,7 @@ A terminal engine and WPF control powered by Ghostty, separated by dependency:
 | `Brows.TTY.Windows` | WPF control, rendering, input and dispatcher lifecycle | `net462`, `net48`, `net8.0-windows`, `net10.0-windows` | `Brows.TTY.Win32` |
 
 Reference **Brows.TTY.Windows** to use the WPF control below. Its namespace and
-XAML mapping are `Brows.Windows.Controls.Terminal` and
+XAML mapping are `Brows.Windows.Controls.TerminalEmulator` and
 `http://schemas.brows.app/winfx/2026/xaml/presentation`.
 Applications using the former combined package must update their package
 reference and rebuild; the WPF types now live in `Brows.TTY.Windows.dll`.
@@ -33,9 +33,9 @@ API. Native **Windows x64 and ARM64** binaries are bundled.
 ```xml
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:tty="http://schemas.brows.app/winfx/2026/xaml/presentation">
-  <tty:Terminal FontFamily="Consolas" FontSize="16"
-                CommandLine="powershell.exe -NoLogo"
-                WorkingDirectory="C:\" />
+  <tty:TerminalEmulator FontFamily="Consolas" FontSize="16"
+                       CommandLine="powershell.exe -NoLogo"
+                       WorkingDirectory="C:\" />
 </Window>
 ```
 
@@ -106,8 +106,8 @@ text and release events from an already handled press stay local.
 For example, this returns Ctrl+C and Ctrl+Shift+PageUp to the terminal:
 
 ```xml
-<tty:Terminal PressControlPlusCToCopy="False"
-              PressControlPlusShiftPlusPageUpToScrollOnePage="False" />
+<tty:TerminalEmulator PressControlPlusCToCopy="False"
+                     PressControlPlusShiftPlusPageUpToScrollOnePage="False" />
 ```
 
 ### Mouse interaction
@@ -124,9 +124,14 @@ For example, this returns Ctrl+C and Ctrl+Shift+PageUp to the terminal:
   not append Enter. `CopySelection()` copies and clears the selection;
   `PasteClipboard()` pastes clipboard text.
 - `Title`, `IsRunning`, and `LastError` are read-only dependency properties.
-  `ProcessExited` reports the root process exit code after output is drained;
-  `Failed` reports automatic-operation/input failures. Explicit async lifecycle
-  calls propagate their exceptions to the caller.
+  `TerminalExited` reports the root process exit code after output is drained;
+  `TerminalFailed` reports automatic-operation/input failures. Both are bubbling
+  routed events, so a parent container can handle notifications from its terminals.
+  Their arguments derive from `RoutedEventArgs` and retain `ExitCode` or `Exception`.
+  Setting `Handled` affects event routing; it does not cancel exit or change
+  failure handling. Explicit async lifecycle calls still propagate exceptions to
+  the caller. Update subscriptions from the former `ProcessExited` and `Failed`
+  names to `TerminalExited` and `TerminalFailed`.
 - Command and working-directory changes apply to the next start. Call StopAsync
   then StartAsync to restart. All control members belong to its WPF dispatcher.
 - Applications can change text/cell colors and the terminal's default foreground,
@@ -221,7 +226,7 @@ presses, so refocus the terminal after changing a checkbox. A press already
 handled locally remains local through its text and release events. Very narrow
 sample windows clip the terminal at its minimum layout width; expanding the
 window reveals it again without reflowing the shell to a single column.
-Source namespaces start at `Brows`; the control is `Brows.Windows.Controls.Terminal`.
+Source namespaces start at `Brows`; the control is `Brows.Windows.Controls.TerminalEmulator`.
 
 ## GitHub workflow
 

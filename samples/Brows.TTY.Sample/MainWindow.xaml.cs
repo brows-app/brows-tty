@@ -1,13 +1,12 @@
-﻿using System.ComponentModel;
+﻿using Brows.Windows;
+using System.ComponentModel;
 using System.IO;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
-using Brows.Windows;
 
 namespace Brows;
 
-public partial class MainWindow : Window {
+sealed partial class MainWindow : Window {
     private bool _closePending;
     private bool _allowClose;
     private bool _windowClosed;
@@ -24,7 +23,9 @@ public partial class MainWindow : Window {
 
     private async Task RestartShellAsync(string commandLine) {
         bool restartIsBlocked = _closePending || _windowClosed || _restartInProgress;
-        if (restartIsBlocked) { return; }
+        if (restartIsBlocked) {
+            return;
+        }
         _restartInProgress = true;
         RestartCommandPromptButton.IsEnabled = false;
         RestartPowerShellButton.IsEnabled = false;
@@ -32,17 +33,23 @@ public partial class MainWindow : Window {
             Status.Text = "Restarting shell…";
             await Console.StopAsync();
             bool windowIsClosing = _closePending || _windowClosed;
-            if (windowIsClosing) { return; }
+            if (windowIsClosing) {
+                return;
+            }
             Console.CommandLine = commandLine;
             await Console.StartAsync();
             bool windowIsOpen = !_closePending && !_windowClosed;
-            if (!windowIsOpen) { return; }
+            if (!windowIsOpen) {
+                return;
+            }
             Status.Text = "Running";
             Console.Focus();
         }
         catch (Exception exception) {
             bool windowIsOpen = !_closePending && !_windowClosed;
-            if (windowIsOpen) { Status.Text = exception.Message; }
+            if (windowIsOpen) {
+                Status.Text = exception.Message;
+            }
         }
         finally {
             _restartInProgress = false;
@@ -54,7 +61,7 @@ public partial class MainWindow : Window {
         }
     }
 
-    private void ProcessExited(object sender, TerminalExitedEventArgs args) {
+    private void TerminalExited(object sender, TerminalExitedEventArgs args) {
         Status.Text = "Process exited with code " + args.ExitCode;
     }
 
@@ -63,13 +70,21 @@ public partial class MainWindow : Window {
     }
 
     private async Task StopAndCloseAsync() {
-        try { await Console.StopAsync(); }
-        catch (Exception exception) { Status.Text = exception.Message; }
-        finally { _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(CompleteClose)); }
+        try {
+            await Console.StopAsync();
+        }
+        catch (Exception exception) {
+            Status.Text = exception.Message;
+        }
+        finally {
+            _ = Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(CompleteClose));
+        }
     }
 
     private void CompleteClose() {
-        if (_windowClosed) { return; }
+        if (_windowClosed) {
+            return;
+        }
         _allowClose = true;
         Close();
     }
@@ -83,7 +98,9 @@ public partial class MainWindow : Window {
             }
             return;
         }
-        if (_windowClosed) { return; }
+        if (_windowClosed) {
+            return;
+        }
         if (_allowClose) {
             _allowClose = false;
             return;

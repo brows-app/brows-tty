@@ -1,6 +1,8 @@
 ﻿namespace Brows.Ghostty;
 
-/* Values match GhosttyKey in the pinned ghostty/vt/key/event.h header. */
+/*
+ * Values match GhosttyKey in the pinned ghostty/vt/key/event.h header.
+ */
 internal enum TerminalKey : uint {
     Unidentified = 0,
     Backquote = 1,

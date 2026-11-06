@@ -1,6 +1,6 @@
-﻿using System.Runtime.InteropServices;
-using Brows.Ghostty;
+﻿using Brows.Ghostty;
 using Brows.Win32.PlatformInvoke;
+using System.Runtime.InteropServices;
 
 namespace Brows.Win32;
 
@@ -11,8 +11,10 @@ internal sealed class TerminalSession : IDisposable {
     private uint WaitForExit() {
         Marshal.ThrowExceptionForHR(SessionMethods.bt_session_wait(_handle, out uint code));
         SessionMethods.bt_session_stop(_handle);
-        /* Transport errors are reported separately through CheckError so that
-         * a failed transport never turns the exit report itself into a fault. */
+        /*
+         * Transport errors are reported separately through CheckError so that
+         * a failed transport never turns the exit report itself into a fault.
+         */
         return code;
     }
 
@@ -46,8 +48,10 @@ internal sealed class TerminalSession : IDisposable {
     }
 
     internal void CheckError() {
-        /* A dead reader or writer latches permanently; dropped input is
-         * observed once and leaves the session usable. */
+        /*
+         * A dead reader or writer latches permanently; dropped input is
+         * observed once and leaves the session usable.
+         */
         Marshal.ThrowExceptionForHR(SessionMethods.bt_session_error(_handle));
         Marshal.ThrowExceptionForHR(SessionMethods.bt_session_dropped_input(_handle));
     }
@@ -66,7 +70,9 @@ internal sealed class TerminalSession : IDisposable {
     }
 
     public void Dispose() {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) { return; }
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) {
+            return;
+        }
         try {
             Stop();
             Completion.GetAwaiter().GetResult();

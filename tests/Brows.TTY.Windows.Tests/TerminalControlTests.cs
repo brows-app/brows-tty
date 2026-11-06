@@ -27,13 +27,15 @@ public sealed class TerminalControlTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal integration test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 800,
@@ -52,11 +54,17 @@ public sealed class TerminalControlTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
     private static string ReadText(TerminalSession session) {
@@ -75,14 +83,14 @@ public sealed class TerminalControlTests {
         return count;
     }
 
-    private static void RaiseKey(Terminal terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
+    private static void RaiseKey(TerminalEmulator terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
         terminal.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         });
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
@@ -99,19 +107,24 @@ public sealed class TerminalControlTests {
     }
 
     private static void DrainInput() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ContextIdle).Task);
     }
 
     private static IEnumerable<GlyphRun> GlyphRuns(Drawing drawing) {
-        if (drawing is GlyphRunDrawing glyph) { yield return glyph.GlyphRun; }
+        if (drawing is GlyphRunDrawing glyph) {
+            yield return glyph.GlyphRun;
+        }
         if (drawing is DrawingGroup group) {
             foreach (Drawing child in group.Children) {
-                foreach (GlyphRun run in GlyphRuns(child)) { yield return run; }
+                foreach (GlyphRun run in GlyphRuns(child)) {
+                    yield return run;
+                }
             }
         }
     }
 
-    private static byte[] RenderPixels(Terminal terminal) {
+    private static byte[] RenderPixels(TerminalEmulator terminal) {
         terminal.UpdateLayout();
         RenderTargetBitmap bitmap = new(800, 400, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(terminal);
@@ -125,7 +138,7 @@ public sealed class TerminalControlTests {
     [TestCase(true, false)]
     [TestCase(true, true)]
     public void StoppedFontChange_RebuildsRetainedText(bool stop, bool changeFamily) {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             FontFamily = new FontFamily("Consolas"),
             FontSize = 14,
@@ -133,15 +146,21 @@ public sealed class TerminalControlTests {
         };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         try {
             Pump(terminal.StartAsync());
             Pump(exit.Task);
             Assert.That(exit.Task.Result, Is.Zero);
-            if (stop) { Pump(terminal.StopAsync()); }
+            if (stop) {
+                Pump(terminal.StopAsync());
+            }
             byte[] before = RenderPixels(terminal);
-            if (changeFamily) { terminal.FontFamily = new FontFamily("Courier New"); }
-            else { terminal.FontSize = 28; }
+            if (changeFamily) {
+                terminal.FontFamily = new FontFamily("Courier New");
+            }
+            else {
+                terminal.FontSize = 28;
+            }
             DrainInput();
             byte[] after = RenderPixels(terminal);
             GlyphRun[] runs = Field<DrawingGroup?[]>(terminal, "_rows")
@@ -166,24 +185,28 @@ public sealed class TerminalControlTests {
             Assert.That(Field<DispatcherTimer>(terminal, "_timer").IsEnabled, Is.False);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false)]
     [TestCase(true)]
     public void StoppedDpiChange_RebuildsRetainedGlyphs(bool stop) {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec") + "\" /d /q /c echo DPI-CACHE"
         };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         try {
             Pump(terminal.StartAsync());
             Pump(exit.Task);
             Assert.That(exit.Task.Result, Is.Zero);
-            if (stop) { Pump(terminal.StopAsync()); }
+            if (stop) {
+                Pump(terminal.StopAsync());
+            }
             RenderPixels(terminal);
             DpiScale oldDpi = VisualTreeHelper.GetDpi(terminal);
             DpiScale newDpi = new(oldDpi.DpiScaleX * 1.5, oldDpi.DpiScaleY * 1.5);
@@ -199,7 +222,9 @@ public sealed class TerminalControlTests {
             Assert.That(Field<DispatcherTimer>(terminal, "_timer").IsEnabled, Is.False);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false, false)]
@@ -207,7 +232,7 @@ public sealed class TerminalControlTests {
     [TestCase(true, false)]
     [TestCase(true, true)]
     public void ControlAltWithoutText_ForwardsPressAndRelease(bool immediateRelease, bool controlComposition) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -227,7 +252,9 @@ public sealed class TerminalControlTests {
                 });
             }
             keyboard.SetControlAlt(false);
-            if (!immediateRelease) { DrainInput(); }
+            if (!immediateRelease) {
+                DrainInput();
+            }
             RaiseKey(terminal, source, Key.A, Keyboard.PreviewKeyUpEvent);
             DrainInput();
             session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
@@ -236,7 +263,9 @@ public sealed class TerminalControlTests {
                 "The child must receive Ctrl+Alt+A with captured modifiers, its release, and the barrier.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false, false)]
@@ -244,7 +273,7 @@ public sealed class TerminalControlTests {
     [TestCase(true, false)]
     [TestCase(true, true)]
     public void ControlAltComposition_SendsTextOnce(bool delayedComposition, bool systemText) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -274,13 +303,15 @@ public sealed class TerminalControlTests {
                 "AltGr text must arrive exactly once without an additional raw Ctrl+Alt chord or release.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false)]
     [TestCase(true)]
     public void ControlAltPendingPress_IsCancelledOnFocusLossOrStop(bool stop) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -309,12 +340,14 @@ public sealed class TerminalControlTests {
                 "An abandoned pending chord must not be sent to an unfocused or replacement session.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void ControlAltConsecutiveKeys_PreserveInputOrder() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -334,14 +367,16 @@ public sealed class TerminalControlTests {
                 Is.EqualTo("1b5b39373b37751b5b39383b37751b5b39383b313a33751b5b39373b313a337521"),
                 "Deferred presses must preserve A-down, B-down, B-up, A-up order.");
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(Key.C, ModifierKeys.Control)]
     [TestCase(Key.C, ModifierKeys.Control | ModifierKeys.Shift)]
     [TestCase(Key.Insert, ModifierKeys.Control)]
     public void CopyShortcut_CopiesPendingSelectionAndClearsItWithoutSendingKeys(Key key, ModifierKeys modifiers) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -352,11 +387,11 @@ public sealed class TerminalControlTests {
             byte[] text = Encoding.UTF8.GetBytes("\u001b[2J\u001b[Hcopied-text");
             session.Engine.Write(text, text.Length);
             session.Engine.Select(0, 0, 0, 0);
-            typeof(Terminal).GetField("_selectionStart", BindingFlags.Instance | BindingFlags.NonPublic)!
+            typeof(TerminalEmulator).GetField("_selectionStart", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(terminal, new Point(0, 0));
-            typeof(Terminal).GetField("_selectionEnd", BindingFlags.Instance | BindingFlags.NonPublic)!
+            typeof(TerminalEmulator).GetField("_selectionEnd", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(terminal, new Point(0, 0));
-            typeof(Terminal).GetMethod("QueueSelection", BindingFlags.Instance | BindingFlags.NonPublic)!
+            typeof(TerminalEmulator).GetMethod("QueueSelection", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(terminal, new object[] { new Point(5, 0) });
             Clipboard.SetText("unchanged");
             keyboard.SetModifiers(modifiers);
@@ -382,13 +417,15 @@ public sealed class TerminalControlTests {
             Assert.That(ReadKeyBytes(session), Is.EqualTo("21"), "Copy must not send a press or release to the child.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false)]
     [TestCase(true)]
     public void RightClick_CopiesSelectionAndSuppressesBothMouseEvents(bool mouseTracking) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         try {
             Pump(terminal.StartAsync());
@@ -399,7 +436,7 @@ public sealed class TerminalControlTests {
             byte[] text = Encoding.UTF8.GetBytes("\u001b[2J\u001b[Hcopied-text" + modes);
             session.Engine.Write(text, text.Length);
             session.Engine.Select(0, 0, 5, 0);
-            typeof(Terminal).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
+            typeof(TerminalEmulator).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(terminal, new object[] { false });
             Clipboard.SetText("unchanged");
 
@@ -419,12 +456,14 @@ public sealed class TerminalControlTests {
             Assert.That(ReadKeyBytes(session), Is.EqualTo("21"), "Local copy must not send an orphan mouse release.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void ControlC_WithoutSelectionStillReachesChild() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -443,13 +482,15 @@ public sealed class TerminalControlTests {
             Assert.That(Clipboard.GetText(), Is.EqualTo("unchanged"));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false)]
     [TestCase(true)]
     public void RightClick_WithoutSelectionPreservesClipboardAndApplicationMouseInput(bool mouseTracking) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         try {
             Pump(terminal.StartAsync());
@@ -458,7 +499,7 @@ public sealed class TerminalControlTests {
             if (mouseTracking) {
                 byte[] modes = Encoding.UTF8.GetBytes("\u001b[?1000h\u001b[?1006h");
                 session.Engine.Write(modes, modes.Length);
-                typeof(Terminal).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
+                typeof(TerminalEmulator).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
                     .Invoke(terminal, new object[] { false });
             }
             Clipboard.SetText("unchanged");
@@ -484,11 +525,14 @@ public sealed class TerminalControlTests {
             Assert.That(Clipboard.GetText(), Is.EqualTo("unchanged"));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
+
     [Test]
     public void CopyShortcut_AllowsAltGrTextWhenModifiersChange() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -510,8 +554,11 @@ public sealed class TerminalControlTests {
             Assert.That(ReadKeyBytes(session), Is.EqualTo("c3a921"));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
+
     private sealed class KeyboardState : IDisposable {
         private readonly byte[] _saved = new byte[256];
 
@@ -531,9 +578,15 @@ public sealed class TerminalControlTests {
 
         internal void SetModifiers(ModifierKeys modifiers) {
             byte[] state = new byte[256];
-            if ((modifiers & ModifierKeys.Control) != 0) { state[0x11] = state[0xa2] = 0x80; }
-            if ((modifiers & ModifierKeys.Alt) != 0) { state[0x12] = state[0xa5] = 0x80; }
-            if ((modifiers & ModifierKeys.Shift) != 0) { state[0x10] = state[0xa0] = 0x80; }
+            if ((modifiers & ModifierKeys.Control) != 0) {
+                state[0x11] = state[0xa2] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Alt) != 0) {
+                state[0x12] = state[0xa5] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Shift) != 0) {
+                state[0x10] = state[0xa0] = 0x80;
+            }
             Assert.That(SetKeyboardState(state), Is.Not.Zero);
         }
 
@@ -543,23 +596,31 @@ public sealed class TerminalControlTests {
     }
 
     private sealed class InputComposition : TextComposition {
-        internal InputComposition(Terminal terminal, string text, bool system, bool control)
+        internal InputComposition(TerminalEmulator terminal, string text, bool system, bool control)
             : base(InputManager.Current, terminal, text) {
-            if (system) { SystemText = text; Text = ""; }
-            if (control) { ControlText = text; Text = ""; }
+            if (system) {
+                SystemText = text;
+                Text = "";
+            }
+            if (control) {
+                ControlText = text;
+                Text = "";
+            }
         }
     }
 
     [Test]
     public void TimerObservedInputDrop_KeepsRendering() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         List<Exception> failures = new();
-        terminal.Failed += (sender, args) => failures.Add(args.Exception);
+        terminal.TerminalFailed += (sender, args) => failures.Add(args.Exception);
         try {
             Pump(terminal.StartAsync());
             TerminalSession session = Field<TerminalSession>(terminal, "_session");
-            /* Bypass Send so the timer is the first observer of the native drop. */
+            /*
+             * Bypass Send so the timer is the first observer of the native drop.
+             */
             session.Engine.Paste(new string('x', 17 * 1024 * 1024));
             WaitFor(() => failures.Count != 0);
             Assert.That(failures, Has.Count.EqualTo(1));
@@ -572,7 +633,9 @@ public sealed class TerminalControlTests {
             WaitFor(() => terminal.Title == "after-input-drop");
             Assert.That(failures, Has.Count.EqualTo(1));
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false)]
@@ -581,7 +644,7 @@ public sealed class TerminalControlTests {
         string architecture = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "AMD64";
         string rid = architecture.Equals("ARM64", StringComparison.OrdinalIgnoreCase) ? "win-arm64" : "win-x64";
         string echo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "helpers", rid, "key-echo.exe");
-        Terminal terminal = new() { AutoStart = false, CommandLine = "\"" + echo + "\"" };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = "\"" + echo + "\"" };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         keyboard.SetControlAlt(false);
@@ -590,15 +653,21 @@ public sealed class TerminalControlTests {
             TerminalSession session = Field<TerminalSession>(terminal, "_session");
             WaitFor(() => ReadText(session).Contains("key-echo-ready"));
             HashSet<Key> shortcuts = Field<HashSet<Key>>(terminal, "_shortcutKeys");
-            /* Keyboard.Modifiers uses physical state. Seed only the shortcut
-             * bookkeeping; presses and releases still traverse real WPF input. */
-            if (shortcutFirst) { shortcuts.Add(Key.C); }
+            /*
+             * Keyboard.Modifiers uses physical state. Seed only the shortcut
+             * bookkeeping; presses and releases still traverse real WPF input.
+             */
+            if (shortcutFirst) {
+                shortcuts.Add(Key.C);
+            }
             RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyDownEvent);
             TextComposition composition = new(InputManager.Current, terminal, "c");
             terminal.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition) {
                 RoutedEvent = TextCompositionManager.TextInputEvent
             });
-            if (!shortcutFirst) { shortcuts.Add(Key.C); }
+            if (!shortcutFirst) {
+                shortcuts.Add(Key.C);
+            }
             RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyUpEvent);
             Assert.That(Field<HashSet<Key>>(terminal, "_forwardedKeys"), Does.Not.Contain(Key.C),
                 "Shortcut bookkeeping must not retain a physically released key.");
@@ -606,7 +675,9 @@ public sealed class TerminalControlTests {
             Assert.That(shortcuts, Does.Not.Contain(Key.C));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(false, false)]
@@ -614,10 +685,10 @@ public sealed class TerminalControlTests {
     [TestCase(true, false)]
     [TestCase(true, true)]
     public void ExitSubscriber_CanReplaceSessionWithoutStaleFailures(bool failFrame, bool restart) {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         List<Exception> failures = new();
-        terminal.Failed += (sender, args) => failures.Add(args.Exception);
+        terminal.TerminalFailed += (sender, args) => failures.Add(args.Exception);
         try {
             Pump(terminal.StartAsync());
             TerminalSession session = Field<TerminalSession>(terminal, "_session");
@@ -626,15 +697,21 @@ public sealed class TerminalControlTests {
             session.Engine.Paste(new string('x', 17 * 1024 * 1024));
             session.Engine.Paste("exit /b 7");
             session.Key(0x0d, 0, 1, "");
-            /* Keep the dispatcher paused until completion so the automatic exit
-             * observer cannot consume the pending error before we set up its callback. */
+            /*
+             * Keep the dispatcher paused until completion so the automatic exit
+             * observer cannot consume the pending error before we set up its callback.
+             */
             Assert.That(session.Completion.Wait(TimeSpan.FromSeconds(15)), Is.True);
             Assert.That(session.Completion.Result, Is.EqualTo(7));
-            if (failFrame) { session.Engine.Dispose(); }
+            if (failFrame) {
+                session.Engine.Dispose();
+            }
             TaskCompletionSource<uint> observed = new();
-            terminal.ProcessExited += (sender, args) => {
+            terminal.TerminalExited += (sender, args) => {
                 Pump(terminal.StopAsync());
-                if (restart) { Pump(terminal.StartAsync()); }
+                if (restart) {
+                    Pump(terminal.StartAsync());
+                }
                 observed.TrySetResult(args.ExitCode);
             };
             Pump(observed.Task);
@@ -646,18 +723,20 @@ public sealed class TerminalControlTests {
                 Assert.That(Field<TerminalSession>(terminal, "_session"), Is.Not.SameAs(session));
             }
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void ExitFailureSubscriber_CanRestartWithoutReceivingSecondStaleFailure() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         List<Exception> failures = new();
         List<uint> exitCodes = new();
         TaskCompletionSource<bool> restarted = new();
-        terminal.ProcessExited += (sender, args) => exitCodes.Add(args.ExitCode);
-        terminal.Failed += (sender, args) => {
+        terminal.TerminalExited += (sender, args) => exitCodes.Add(args.ExitCode);
+        terminal.TerminalFailed += (sender, args) => {
             failures.Add(args.Exception);
             Pump(terminal.StopAsync());
             Pump(terminal.StartAsync());
@@ -680,7 +759,9 @@ public sealed class TerminalControlTests {
             Assert.That(terminal.LastError, Is.Null);
             Assert.That(terminal.IsRunning, Is.True);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [SetUp]
@@ -696,14 +777,14 @@ public sealed class TerminalControlTests {
 
     [Test]
     public void ShellExit_RendersTextAndRaisesExitEvent() {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec")
                 + "\" /d /q /c \"echo WPF-Ghostty-render-ok & exit /b 9\""
         };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         try {
             Pump(terminal.StartAsync());
             Pump(exit.Task);
@@ -723,7 +804,9 @@ public sealed class TerminalControlTests {
             encoder.Save(file);
             Assert.That(litPixels, Is.GreaterThan(100), "Terminal glyphs must be visible in the rendered first rows.");
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -731,10 +814,10 @@ public sealed class TerminalControlTests {
         string script = "[Console]::Write([char]27 + ']11;rgb:1212/3434/abab' + [char]7)";
         string command = "powershell.exe -NoProfile -NonInteractive -EncodedCommand "
             + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-        Terminal terminal = new() { AutoStart = false, CommandLine = command };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = command };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         try {
             Pump(terminal.StartAsync());
             Pump(exit.Task);
@@ -750,15 +833,17 @@ public sealed class TerminalControlTests {
                     "Application background must fill empty cells and the remaining control area at " + point);
             }
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void TextAndEnter_RoutedThroughControl_ExecuteShellCommand() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         try {
             Pump(terminal.StartAsync());
             TextComposition composition = new(InputManager.Current, terminal, "exit /b 11");
@@ -772,7 +857,9 @@ public sealed class TerminalControlTests {
             Assert.That(exit.Task.Result, Is.EqualTo(11));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(Key.F4, false)]
@@ -780,7 +867,7 @@ public sealed class TerminalControlTests {
     [TestCase(Key.Space, false)]
     [TestCase(Key.Space, true)]
     public void WindowShortcuts_RemainUnhandledAndSendNoTerminalInput(Key key, bool systemKey) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -819,7 +906,9 @@ public sealed class TerminalControlTests {
                 "Neither shortcut presses, system text, nor releases may reach the child.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(Key.F4, ModifierKeys.None)]
@@ -828,7 +917,7 @@ public sealed class TerminalControlTests {
     [TestCase(Key.F3, ModifierKeys.Alt)]
     [TestCase(Key.Enter, ModifierKeys.Alt)]
     public void OtherFunctionAndAltKeys_StillReachTerminal(Key key, ModifierKeys modifiers) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -848,12 +937,14 @@ public sealed class TerminalControlTests {
             Assert.That(ReadKeyBytes(session), Is.Not.EqualTo("21"), "The child must receive the key.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void TextlessKeyPresses_AreForwardedToTheTerminal() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         Pump(terminal.StartAsync());
         foreach (Key key in new[] {
@@ -879,39 +970,49 @@ public sealed class TerminalControlTests {
         string rid = architecture.Equals("ARM64", StringComparison.OrdinalIgnoreCase) ? "win-arm64" : "win-x64";
         string echo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "helpers", rid, "key-echo.exe");
         Assert.That(File.Exists(echo), Is.True, "Run scripts/Build-Native.ps1 to build the key echo helper.");
-        Terminal terminal = new() { AutoStart = false, CommandLine = "\"" + echo + "\"" };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = "\"" + echo + "\"" };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         keyboard.SetControlAlt(false);
         Pump(terminal.StartAsync());
-        TerminalSession session = (TerminalSession)typeof(Terminal).GetField("_session",
+        TerminalSession session = (TerminalSession)typeof(TerminalEmulator).GetField("_session",
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
-        /* The helper enables Kitty flags 2 and 8, so every key press and release
-         * reaches the child as a CSI u escape sequence. */
+        /*
+         * The helper enables Kitty flags 2 and 8, so every key press and release
+         * reaches the child as a CSI u escape sequence.
+         */
         string shiftPress = "1b5b353734343175";
         string shiftRelease = "1b5b35373434313b313a3375";
         string rightShiftRelease = "1b5b35373434373b313a3375";
         string textPress = "1b5b31323075";
         string textRelease = "1b5b3132303b313a3375";
         WaitFor(() => ReadText(session).Contains("key-echo-ready"));
-        /* A modifier press and its release reach the child as a matching pair. */
+        /*
+         * A modifier press and its release reach the child as a matching pair.
+         */
         RaiseKey(terminal, source, Key.LeftShift, Keyboard.PreviewKeyDownEvent);
         RaiseKey(terminal, source, Key.LeftShift, Keyboard.PreviewKeyUpEvent);
         WaitFor(() => {
             string text = ReadText(session);
             return text.Contains(shiftPress) && text.Contains(shiftRelease);
         });
-        /* A release whose press was never forwarded, for example a key pressed in
-         * another window, is not sent at all. */
+        /*
+         * A release whose press was never forwarded, for example a key pressed in
+         * another window, is not sent at all.
+         */
         RaiseKey(terminal, source, Key.RightShift, Keyboard.PreviewKeyUpEvent);
-        /* Losing focus while a forwarded key is still held releases it. */
+        /*
+         * Losing focus while a forwarded key is still held releases it.
+         */
         RaiseKey(terminal, source, Key.LeftShift, Keyboard.PreviewKeyDownEvent);
         terminal.RaiseEvent(new KeyboardFocusChangedEventArgs(Keyboard.PrimaryDevice,
             Environment.TickCount, null, null) {
             RoutedEvent = UIElement.LostKeyboardFocusEvent
         });
         WaitFor(() => CountText(ReadText(session), shiftRelease) >= 2);
-        /* Text keys report their press through text input and still pair with releases. */
+        /*
+         * Text keys report their press through text input and still pair with releases.
+         */
         RaiseKey(terminal, source, Key.X, Keyboard.PreviewKeyDownEvent);
         TextComposition composition = new(InputManager.Current, terminal, "x");
         terminal.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, composition) {
@@ -931,7 +1032,7 @@ public sealed class TerminalControlTests {
 
     [Test]
     public void StartStopRestart_ReleasesPreviousSessionAndRemainsUsable() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         try {
             Pump(terminal.StartAsync());
@@ -942,12 +1043,14 @@ public sealed class TerminalControlTests {
             Assert.That(terminal.IsRunning, Is.True);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void LoadUnloadReload_AutomaticallyOwnsSessionLifetime() {
-        Terminal terminal = new();
+        TerminalEmulator terminal = new();
         using HwndSource source = Host(terminal);
         try {
             WaitFor(() => terminal.IsRunning);
@@ -957,19 +1060,21 @@ public sealed class TerminalControlTests {
             WaitFor(() => terminal.IsRunning);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void SustainedOutput_KeepsDispatcherResponsive() {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec")
                 + "\" /d /q /c \"for /l %i in (1,1,20000) do @echo terminal-output-%i\""
         };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
         Stopwatch clock = new();
         List<double> intervals = new();
         double previous = 0;
@@ -1004,13 +1109,13 @@ public sealed class TerminalControlTests {
 
     [Test]
     public void FaultedSession_MouseSelectionAndScrollReportFailureWithoutCrashing() {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         TaskCompletionSource<Exception> failed = new();
-        terminal.Failed += (sender, args) => failed.TrySetResult(args.Exception);
+        terminal.TerminalFailed += (sender, args) => failed.TrySetResult(args.Exception);
         try {
             Pump(terminal.StartAsync());
-            FieldInfo sessionField = typeof(Terminal).GetField("_session",
+            FieldInfo sessionField = typeof(TerminalEmulator).GetField("_session",
                 BindingFlags.Instance | BindingFlags.NonPublic)!;
             TerminalSession session = (TerminalSession)sessionField.GetValue(terminal)!;
             session.Engine.Dispose();
@@ -1024,15 +1129,17 @@ public sealed class TerminalControlTests {
                 "A selection failure must not escape the mouse handler.");
             Assert.That(() => terminal.RaiseEvent(scroll), Throws.Nothing,
                 "A scroll failure must not escape the mouse handler.");
-            Assert.That(failed.Task.IsCompleted, Is.True, "Mouse failures must be reported through Failed.");
+            Assert.That(failed.Task.IsCompleted, Is.True, "Mouse failures must be reported through TerminalFailed.");
             Assert.That(terminal.LastError, Is.Not.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void QueueOverflow_ReportsFailureOnceAndStillRaisesExitEvent() {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec")
                 + "\" /d /q /c \"ping -n 4 127.0.0.1 >nul\""
@@ -1040,29 +1147,34 @@ public sealed class TerminalControlTests {
         using HwndSource source = Host(terminal);
         TaskCompletionSource<uint> exit = new();
         List<Exception> failures = new();
-        terminal.ProcessExited += (sender, args) => exit.TrySetResult(args.ExitCode);
-        terminal.Failed += (sender, args) => failures.Add(args.Exception);
+        terminal.TerminalExited += (sender, args) => exit.TrySetResult(args.ExitCode);
+        terminal.TerminalFailed += (sender, args) => failures.Add(args.Exception);
         try {
             Pump(terminal.StartAsync());
             terminal.Paste(new string('x', 17 * 1024 * 1024));
             Pump(exit.Task);
             Assert.That(exit.Task.Result, Is.EqualTo(0),
-                "ProcessExited must still fire after a recoverable input failure.");
+                "TerminalExited must still fire after a recoverable input failure.");
             Assert.That(terminal.IsRunning, Is.False);
             Assert.That(terminal.LastError, Is.Not.Null);
             Assert.That(failures, Has.Count.EqualTo(1),
                 "A queue overflow must be reported once without faulting the session.");
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void FailedStart_DoesNotPreventStartingValidCommand() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = "Z:\\missing-terminal-app-87654321.exe" };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = "Z:\\missing-terminal-app-87654321.exe" };
         using HwndSource source = Host(terminal);
         Task failed = terminal.StartAsync();
-        try { Pump(failed); }
-        catch (FileNotFoundException) { }
+        try {
+            Pump(failed);
+        }
+        catch (FileNotFoundException) {
+        }
         Assert.That(failed.IsFaulted, Is.True);
         Assert.That(terminal.IsRunning, Is.False);
         terminal.CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec") + "\"";
@@ -1070,6 +1182,8 @@ public sealed class TerminalControlTests {
             Pump(terminal.StartAsync());
             Assert.That(terminal.IsRunning, Is.True);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 }

@@ -60,9 +60,13 @@ internal sealed class TerminalEngine : IDisposable {
             }
         }
         finally {
-            /* Native encoding and queueing finish before returning; no pointer escapes.
-             * Clear pooled input because it may contain passwords or pasted secrets. */
-            if (rented is not null) { ArrayPool<byte>.Shared.Return(rented, clearArray: true); }
+            /*
+             * Native encoding and queueing finish before returning; no pointer escapes.
+             * Clear pooled input because it may contain passwords or pasted secrets.
+             */
+            if (rented is not null) {
+                ArrayPool<byte>.Shared.Return(rented, clearArray: true);
+            }
         }
 #else
         byte[] bytes = Encoding.UTF8.GetBytes(text);
@@ -85,11 +89,17 @@ internal sealed class TerminalEngine : IDisposable {
                 }
             }
         }
-        if (!changed) { return _title; }
-        /* ReadFrame holds NativeAccess while examining the borrowed native bytes.
-         * Cache an owned copy; native title storage may change on the next write. */
+        if (!changed) {
+            return _title;
+        }
+        /*
+         * ReadFrame holds NativeAccess while examining the borrowed native bytes.
+         * Cache an owned copy; native title storage may change on the next write.
+         */
         byte[] copy = length == 0 ? Array.Empty<byte>() : new byte[length];
-        if (length != 0) { Marshal.Copy(title, copy, 0, length); }
+        if (length != 0) {
+            Marshal.Copy(title, copy, 0, length);
+        }
         string decoded = Encoding.UTF8.GetString(copy);
         _titleBytes = copy;
         _title = decoded;
@@ -97,7 +107,9 @@ internal sealed class TerminalEngine : IDisposable {
     }
 
     internal TerminalEngine(ushort columns, ushort rows, Action<byte[]> output) {
-        if (output is null) { throw new ArgumentNullException(nameof(output)); }
+        if (output is null) {
+            throw new ArgumentNullException(nameof(output));
+        }
         TerminalLibrary.EnsureLoaded();
         NativeMethods.OutputCallback callback = (context, bytes, length) => {
             try {
@@ -118,9 +130,13 @@ internal sealed class TerminalEngine : IDisposable {
     }
 
     internal void Write(byte[] bytes, int length) {
-        if (bytes is null) { throw new ArgumentNullException(nameof(bytes)); }
+        if (bytes is null) {
+            throw new ArgumentNullException(nameof(bytes));
+        }
         bool invalid = length < 0 || length > bytes.Length;
-        if (invalid) { throw new ArgumentOutOfRangeException(nameof(length)); }
+        if (invalid) {
+            throw new ArgumentOutOfRangeException(nameof(length));
+        }
         lock (_gate) {
             VerifyOpen();
             using NativeAccess access = new(_handle);
@@ -147,10 +163,14 @@ internal sealed class TerminalEngine : IDisposable {
                 while (true) {
                     int result = NativeMethods.bt_next_row(_handle, out ushort y, out IntPtr cells,
                         out IntPtr text, out UIntPtr length);
-                    if (result == 1) { break; }
+                    if (result == 1) {
+                        break;
+                    }
                     Check(result);
 #if NET5_0_OR_GREATER
-                    /* These blittable buffers are completely overwritten before publication. */
+                    /*
+                     * These blittable buffers are completely overwritten before publication.
+                     */
                     NativeCell[] cellCopy = GC.AllocateUninitializedArray<NativeCell>((int)frame.Columns);
 #else
                     NativeCell[] cellCopy = new NativeCell[frame.Columns];
@@ -164,7 +184,9 @@ internal sealed class TerminalEngine : IDisposable {
 #else
                     byte[] textCopy = new byte[checked((int)length.ToUInt64())];
 #endif
-                    if (textCopy.Length != 0) { Marshal.Copy(text, textCopy, 0, textCopy.Length); }
+                    if (textCopy.Length != 0) {
+                        Marshal.Copy(text, textCopy, 0, textCopy.Length);
+                    }
                     rows.Add(new TerminalRow(y, cellCopy, textCopy));
                 }
             }
@@ -227,14 +249,18 @@ internal sealed class TerminalEngine : IDisposable {
             VerifyOpen();
             using NativeAccess access = new(_handle);
             Check(NativeMethods.bt_selection_text(_handle, out IntPtr text, out UIntPtr length));
-            if (length == UIntPtr.Zero) { return ""; }
+            if (length == UIntPtr.Zero) {
+                return "";
+            }
             return Encoding.UTF8.GetString((byte*)text, checked((int)length.ToUInt64()));
         }
     }
 
     public void Dispose() {
         lock (_gate) {
-            if (_disposed) { return; }
+            if (_disposed) {
+                return;
+            }
             _disposed = true;
             _handle.Dispose();
         }

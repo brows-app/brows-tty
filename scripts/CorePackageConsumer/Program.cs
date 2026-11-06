@@ -19,7 +19,9 @@ internal static class Program {
             string[] references = assembly.GetReferencedAssemblies().Select(value => value.Name!).ToArray();
             bool hasUiDependency = references.Any(name => name.StartsWith("Presentation")
                 || name == "WindowsBase" || name == "Brows.TTY.Windows");
-            if (hasUiDependency) { throw new InvalidOperationException("Unexpected WPF dependency."); }
+            if (hasUiDependency) {
+                throw new InvalidOperationException("Unexpected WPF dependency.");
+            }
             if (assemblyName == "Brows.TTY") {
                 if (references.Contains("Brows.TTY.Win32")) {
                     throw new InvalidOperationException("Core depends on the Windows transport.");
@@ -27,14 +29,17 @@ internal static class Program {
                 Type type = assembly.GetType("Brows.Ghostty.TerminalEngine", true)!;
                 List<byte> output = new();
                 using IDisposable engine = (IDisposable)Activator.CreateInstance(type, Members, null,
-                    new object[] { (ushort)80, (ushort)24, new Action<byte[]>(bytes => output.AddRange(bytes)) }, null)!;
+                    new object[] { (ushort)80, (ushort)24, new Action<byte[]>(bytes => output.AddRange(bytes)) },
+                    null)!;
                 byte[] input = Encoding.UTF8.GetBytes("\u001b]10;?\u0007\u001b]11;#0d1117\u0007core-package-ok");
                 Call(engine, "Write", input, input.Length);
                 object frame = Call(engine, "ReadFrame", true);
                 object info = Property(frame, "Info");
                 uint background = (uint)info.GetType().GetField("Background", Members | BindingFlags.Public)!
                     .GetValue(info)!;
-                if (background != 0xff0d1117u) { throw new InvalidOperationException("Core background failed."); }
+                if (background != 0xff0d1117u) {
+                    throw new InvalidOperationException("Core background failed.");
+                }
                 if (!Encoding.UTF8.GetString(output.ToArray()).Contains("10;rgb:ffff/ffff/ffff")) {
                     throw new InvalidOperationException("Core terminal query failed.");
                 }

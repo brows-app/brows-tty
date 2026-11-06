@@ -1,6 +1,6 @@
-﻿using System.Runtime.InteropServices;
-using Brows.Ghostty;
+﻿using Brows.Ghostty;
 using Brows.Interop;
+using System.Runtime.InteropServices;
 
 namespace Brows.Win32.PlatformInvoke;
 

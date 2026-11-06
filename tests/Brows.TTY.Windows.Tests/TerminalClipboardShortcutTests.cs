@@ -31,9 +31,15 @@ public sealed class TerminalClipboardShortcutTests {
 
         internal void SetModifiers(ModifierKeys modifiers) {
             byte[] state = new byte[256];
-            if ((modifiers & ModifierKeys.Control) != 0) { state[0x11] = state[0xa2] = 0x80; }
-            if ((modifiers & ModifierKeys.Alt) != 0) { state[0x12] = state[0xa5] = 0x80; }
-            if ((modifiers & ModifierKeys.Shift) != 0) { state[0x10] = state[0xa0] = 0x80; }
+            if ((modifiers & ModifierKeys.Control) != 0) {
+                state[0x11] = state[0xa2] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Alt) != 0) {
+                state[0x12] = state[0xa5] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Shift) != 0) {
+                state[0x10] = state[0xa0] = 0x80;
+            }
             Assert.That(SetKeyboardState(state), Is.Not.Zero);
         }
 
@@ -50,13 +56,15 @@ public sealed class TerminalClipboardShortcutTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal clipboard shortcut test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 800,
@@ -75,11 +83,17 @@ public sealed class TerminalClipboardShortcutTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
     private static string ReadText(TerminalSession session) {
@@ -100,19 +114,20 @@ public sealed class TerminalClipboardShortcutTests {
             .Select(line => line.Substring("key-echo:".Length)));
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
-    private static TerminalSession Start(Terminal terminal) {
+    private static TerminalSession Start(TerminalEmulator terminal) {
         Pump(terminal.StartAsync());
         TerminalSession session = Field<TerminalSession>(terminal, "_session");
         WaitFor(() => ReadText(session).Contains("key-echo-ready"));
         return session;
     }
 
-    private static KeyEventArgs RaiseKey(Terminal terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
+    private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
+        RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };
@@ -120,7 +135,7 @@ public sealed class TerminalClipboardShortcutTests {
         return args;
     }
 
-    private static TextCompositionEventArgs RaiseText(Terminal terminal, string text) {
+    private static TextCompositionEventArgs RaiseText(TerminalEmulator terminal, string text) {
         TextComposition composition = new(InputManager.Current, terminal, text);
         TextCompositionEventArgs args = new(Keyboard.PrimaryDevice, composition) {
             RoutedEvent = TextCompositionManager.TextInputEvent
@@ -142,7 +157,7 @@ public sealed class TerminalClipboardShortcutTests {
 
     [Test]
     public void EnterWithSelection_CopiesOnRepeatAndSuppressesNewlines() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -175,12 +190,14 @@ public sealed class TerminalClipboardShortcutTests {
             Assert.That(session.Engine.SelectedText(), Is.Empty);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void EnterWithoutSelection_ForwardsPressAndRelease() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -197,14 +214,16 @@ public sealed class TerminalClipboardShortcutTests {
                 "Without a selection, Enter's press and release must reach the child.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [TestCase(Key.V, ModifierKeys.Control, "v")]
     [TestCase(Key.V, ModifierKeys.Control | ModifierKeys.Shift, "V")]
     [TestCase(Key.Insert, ModifierKeys.Shift, "")]
     public void PasteShortcut_PastesClipboardOnceWithoutKeyInput(Key key, ModifierKeys modifiers, string text) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -228,19 +247,23 @@ public sealed class TerminalClipboardShortcutTests {
             Assert.That(release.Handled, Is.True);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void ControlAltV_PreservesAltGrTextAndDoesNotPaste() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
             TerminalSession session = Start(terminal);
             DataObject clipboard = new();
             clipboard.SetData(DataFormats.UnicodeText, "unchanged");
-            /* This test only reads the clipboard in-process and does not need persistent ownership. */
+            /*
+             * This test only reads the clipboard in-process and does not need persistent ownership.
+             */
             Clipboard.SetDataObject(clipboard, false);
             keyboard.SetModifiers(ModifierKeys.Control | ModifierKeys.Alt);
             RaiseKey(terminal, source, Key.V, Keyboard.PreviewKeyDownEvent);
@@ -256,6 +279,8 @@ public sealed class TerminalClipboardShortcutTests {
                 "Ctrl+Alt+V text must be sent as AltGr text without pasting the clipboard.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 }

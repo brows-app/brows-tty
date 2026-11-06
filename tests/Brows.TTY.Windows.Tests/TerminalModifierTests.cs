@@ -16,7 +16,7 @@ public sealed class TerminalModifierTests {
     }
 
     private static ushort CaptureModifiers() {
-        MethodInfo method = typeof(Terminal).GetMethod("Modifiers",
+        MethodInfo method = typeof(TerminalEmulator).GetMethod("Modifiers",
             BindingFlags.Static | BindingFlags.NonPublic)!;
         return (ushort)method.Invoke(null, null)!;
     }
@@ -48,7 +48,9 @@ public sealed class TerminalModifierTests {
         using KeyboardState keyboard = new();
         List<byte> output = new();
         using TerminalEngine terminal = new(20, 3, bytes => output.AddRange(bytes));
-        /* Match the key echo helper's Kitty flags: report event types and all keys. */
+        /*
+         * Match the key echo helper's Kitty flags: report event types and all keys.
+         */
         Write(terminal, "\u001b[=10;1u");
 
         AssertEncodedPair(terminal, output, keyboard, false, false,
@@ -77,8 +79,10 @@ public sealed class TerminalModifierTests {
         }
 
         internal void SetLocks(bool capsLock, bool numLock) {
-            /* SetKeyboardState changes only this STA thread's keyboard table. No
-             * physical lock key is pressed, so hardware indicator lights stay put. */
+            /*
+             * SetKeyboardState changes only this STA thread's keyboard table. No
+             * physical lock key is pressed, so hardware indicator lights stay put.
+             */
             byte[] state = new byte[256];
             state[0x14] = capsLock ? (byte)1 : (byte)0;
             state[0x90] = numLock ? (byte)1 : (byte)0;

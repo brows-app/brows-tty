@@ -1,5 +1,5 @@
-﻿using System.Runtime.InteropServices;
-using Brows.Interop;
+﻿using Brows.Interop;
+using System.Runtime.InteropServices;
 
 namespace Brows.Ghostty;
 
@@ -12,7 +12,9 @@ internal static class TerminalLibrary {
 #endif
     }
 
-    /* Keep the module loaded through SafeHandle finalization, as in the original loader. */
+    /*
+     * Keep the module loaded through SafeHandle finalization, as in the original loader.
+     */
     private static readonly IntPtr Module;
 
     internal static void EnsureLoaded() {

@@ -36,7 +36,7 @@ public sealed class TerminalFontShortcutTests {
         task.GetAwaiter().GetResult();
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal font shortcut test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 800,
@@ -69,17 +69,18 @@ public sealed class TerminalFontShortcutTests {
     }
 
     private static void DrainInput() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ContextIdle).Task);
     }
 
-    private static void Render(Terminal terminal) {
+    private static void Render(TerminalEmulator terminal) {
         terminal.UpdateLayout();
         RenderTargetBitmap bitmap = new(800, 400, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(terminal);
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
@@ -101,7 +102,8 @@ public sealed class TerminalFontShortcutTests {
             .Select(line => line.Substring("key-echo:".Length)));
     }
 
-    private static KeyEventArgs RaiseKey(Terminal terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
+    private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
+        RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };
@@ -109,7 +111,7 @@ public sealed class TerminalFontShortcutTests {
         return args;
     }
 
-    private static void RaiseFontShortcut(Terminal terminal, HwndSource source, KeyboardState keyboard,
+    private static void RaiseFontShortcut(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
         Key key, ModifierKeys modifiers, string? text = null) {
         keyboard.SetModifiers(modifiers);
         KeyEventArgs press = RaiseKey(terminal, source, key, Keyboard.PreviewKeyDownEvent);
@@ -141,7 +143,7 @@ public sealed class TerminalFontShortcutTests {
     [TestCase(true)]
     public void FontShortcuts_ZoomAndResetBindingBaseline(bool running) {
         FontSizeSource settings = new() { Size = 18 };
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         BindingOperations.SetBinding(terminal, Control.FontSizeProperty,
             new Binding(nameof(FontSizeSource.Size)) { Source = settings, Mode = BindingMode.OneWay });
         if (running) {
@@ -210,7 +212,7 @@ public sealed class TerminalFontShortcutTests {
 
     [Test]
     public void FontShortcuts_LeaveShiftedMinusAndAltGrPlusAsTerminalInput() {
-        Terminal terminal = new() {
+        TerminalEmulator terminal = new() {
             AutoStart = false,
             FontSize = 18,
             CommandLine = KeyEchoCommand()
@@ -263,7 +265,7 @@ public sealed class TerminalFontShortcutTests {
     [TestCase(0.5)]
     [TestCase(1.0)]
     public void FontZoomOut_AtOrBelowOneDipLeavesSizeAndResetBaseline(double fontSize) {
-        Terminal terminal = new() { AutoStart = false, FontSize = fontSize };
+        TerminalEmulator terminal = new() { AutoStart = false, FontSize = fontSize };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         RaiseFontShortcut(terminal, source, keyboard, Key.OemMinus, ModifierKeys.Control, "-");
@@ -308,8 +310,9 @@ public sealed class TerminalFontShortcutTests {
     }
 
     private sealed class InputComposition : TextComposition {
-        internal InputComposition(Terminal terminal, string text)
-            : base(InputManager.Current, terminal, text) { }
+        internal InputComposition(TerminalEmulator terminal, string text)
+            : base(InputManager.Current, terminal, text) {
+            }
     }
 
     private sealed class FontSizeSource : INotifyPropertyChanged {

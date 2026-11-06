@@ -1,7 +1,7 @@
-﻿using System.Globalization;
+﻿using Brows.Ghostty;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
-using Brows.Ghostty;
 
 namespace Brows.Windows.Controls;
 
@@ -100,8 +100,12 @@ internal sealed class TerminalDrawing {
     }
 
     internal SolidColorBrush Brush(uint value) {
-        if (_brushes.TryGetValue(value, out SolidColorBrush? brush)) { return brush; }
-        if (_brushes.Count >= 4096) { _brushes.Clear(); }
+        if (_brushes.TryGetValue(value, out SolidColorBrush? brush)) {
+            return brush;
+        }
+        if (_brushes.Count >= 4096) {
+            _brushes.Clear();
+        }
         brush = new SolidColorBrush(Color.FromArgb(
             (byte)(value >> 24), (byte)(value >> 16), (byte)(value >> 8), (byte)value));
         brush.Freeze();
@@ -121,7 +125,9 @@ internal sealed class TerminalDrawing {
                 while (end < row.Cells.Length) {
                     NativeCell next = row.Cells[end];
                     uint nextBackground = next.Selected != 0 ? 0xff264f78 : next.Background;
-                    if (nextBackground != background) { break; }
+                    if (nextBackground != background) {
+                        break;
+                    }
                     end++;
                 }
                 context.DrawRectangle(Brush(background), null,
@@ -130,7 +136,10 @@ internal sealed class TerminalDrawing {
             }
             for (int x = 0; x < row.Cells.Length;) {
                 NativeCell cell = row.Cells[x];
-                if (cell.Width == 0) { x++; continue; }
+                if (cell.Width == 0) {
+                    x++;
+                    continue;
+                }
                 int font = FontIndex(cell.Flags);
                 GlyphTypeface glyph = _glyphs[font];
                 double baseline = top + (_glyphs[0].Baseline * _fontSize) + (CellHeight - _fontSize) / 2;
@@ -144,7 +153,9 @@ internal sealed class TerminalDrawing {
                         bool matches = next.TextLength == 1 && next.Width == 1 && next.Foreground == cell.Foreground
                             && next.Flags == cell.Flags && next.Underline == cell.Underline
                             && row.Text[next.TextOffset] >= 32 && row.Text[next.TextOffset] < 127;
-                        if (!matches) { break; }
+                        if (!matches) {
+                            break;
+                        }
                         end++;
                     }
                     int runLength = end - x;

@@ -32,7 +32,7 @@ public sealed class TerminalResizeTests {
         return "\"" + commandProcessor + "\" /d /q /k prompt resize-ready$G";
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal resize integration test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 800,
@@ -47,9 +47,9 @@ public sealed class TerminalResizeTests {
         return source;
     }
 
-    private static Terminal HostSample(double rootWidth, out FrameworkElement root, out HwndSource source) {
+    private static TerminalEmulator HostSample(double rootWidth, out FrameworkElement root, out HwndSource source) {
         MainWindow window = new();
-        Terminal terminal = (Terminal)window.FindName("Console");
+        TerminalEmulator terminal = (TerminalEmulator)window.FindName("Console");
         terminal.AutoStart = false;
         terminal.CommandLine = CommandLine();
         root = (FrameworkElement)window.Content;
@@ -65,7 +65,7 @@ public sealed class TerminalResizeTests {
         return terminal;
     }
 
-    private static void ArrangeSize(Terminal terminal, double width, double height) {
+    private static void ArrangeSize(TerminalEmulator terminal, double width, double height) {
         terminal.Width = width;
         terminal.Height = height;
         terminal.Measure(new Size(width, height));
@@ -89,7 +89,9 @@ public sealed class TerminalResizeTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
@@ -99,26 +101,32 @@ public sealed class TerminalResizeTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
-    private static void ConfigureSize(Terminal terminal) {
-        MethodInfo? method = typeof(Terminal).GetMethod("ConfigureSize",
+    private static void ConfigureSize(TerminalEmulator terminal) {
+        MethodInfo? method = typeof(TerminalEmulator).GetMethod("ConfigureSize",
             BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.That(method, Is.Not.Null);
         method!.Invoke(terminal, null);
     }
 
-    private static TerminalSession Start(Terminal terminal) {
+    private static TerminalSession Start(TerminalEmulator terminal) {
         Pump(terminal.StartAsync());
         TerminalSession session = Field<TerminalSession>(terminal, "_session");
         WaitFor(() => ReadText(session).IndexOf(ShellPrompt, StringComparison.Ordinal) >= 0);
@@ -138,7 +146,7 @@ public sealed class TerminalResizeTests {
         });
     }
 
-    private static void PressEnter(Terminal terminal, HwndSource source) {
+    private static void PressEnter(TerminalEmulator terminal, HwndSource source) {
         terminal.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, Key.Enter) {
             RoutedEvent = Keyboard.PreviewKeyDownEvent
         });
@@ -163,7 +171,7 @@ public sealed class TerminalResizeTests {
             string.Concat(Enumerable.Range(0, row.Cells.Length).Select(row.GetText))));
     }
 
-    private static void AssertRestoredHistoryAndPrompt(Terminal terminal, HwndSource source,
+    private static void AssertRestoredHistoryAndPrompt(TerminalEmulator terminal, HwndSource source,
         TerminalSession session) {
         for (int press = 0; press < 2; press++) {
             int priorPromptCount = CountOccurrences(ReadText(session), ShellPrompt);
@@ -210,7 +218,7 @@ public sealed class TerminalResizeTests {
 
     [TestCaseSource(nameof(NoCellCases))]
     public void NoFullCellFits_PreservesPreviousConptyGrid(bool shrinkingWidth, bool zeroSize) {
-        Terminal terminal = new() { AutoStart = false, CommandLine = CommandLine() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = CommandLine() };
         using HwndSource source = Host(terminal);
         try {
             TerminalSession session = Start(terminal);
@@ -224,8 +232,12 @@ public sealed class TerminalResizeTests {
             bool shrinkingHeight = !shrinkingWidth;
             double width = originalWidth;
             double height = originalHeight;
-            if (shrinkingWidth) { width = zeroSize ? 0 : cellWidth / 2; }
-            if (shrinkingHeight) { height = zeroSize ? 0 : cellHeight / 2; }
+            if (shrinkingWidth) {
+                width = zeroSize ? 0 : cellWidth / 2;
+            }
+            if (shrinkingHeight) {
+                height = zeroSize ? 0 : cellHeight / 2;
+            }
 
             ArrangeSize(terminal, width, height);
             ConfigureSize(terminal);
@@ -239,12 +251,14 @@ public sealed class TerminalResizeTests {
             Assert.That(frame.Info.Rows, Is.EqualTo((uint)originalRows));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void UnmeasuredStart_UsesDefaultGrid() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = CommandLine() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = CommandLine() };
         try {
             TerminalSession session = Start(terminal);
             TerminalFrame frame = session.Engine.ReadFrame(true);
@@ -256,12 +270,14 @@ public sealed class TerminalResizeTests {
             Assert.That(frame.Info.Rows, Is.EqualTo(24));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void ValidOneAndTwoColumnGrids_ResizeNormally() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = CommandLine() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = CommandLine() };
         using HwndSource source = Host(terminal);
         try {
             TerminalSession session = Start(terminal);
@@ -280,12 +296,14 @@ public sealed class TerminalResizeTests {
             Assert.That(oneColumnFrame.Info.Columns, Is.EqualTo(1));
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void DirectZeroWidthCollapse_RestoresHistoryAndPromptAfterRepeatedEnter() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = CommandLine() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = CommandLine() };
         using HwndSource source = Host(terminal);
         try {
             TerminalSession session = Start(terminal);
@@ -305,12 +323,14 @@ public sealed class TerminalResizeTests {
             AssertRestoredHistoryAndPrompt(terminal, source, session);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void SampleGradualCollapse_RetainsUsefulGridHistoryAndPrompt() {
-        Terminal terminal = HostSample(1000, out FrameworkElement root, out HwndSource source);
+        TerminalEmulator terminal = HostSample(1000, out FrameworkElement root, out HwndSource source);
         using (source) {
             try {
                 TerminalSession session = Start(terminal);
@@ -333,7 +353,9 @@ public sealed class TerminalResizeTests {
                 AssertRestoredHistoryAndPrompt(terminal, source, session);
                 Assert.That(terminal.LastError, Is.Null);
             }
-            finally { Pump(terminal.StopAsync()); }
+            finally {
+                Pump(terminal.StopAsync());
+            }
         }
     }
 }

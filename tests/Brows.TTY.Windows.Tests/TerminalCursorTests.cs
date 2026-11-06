@@ -16,9 +16,10 @@ namespace Brows.TTY.Tests;
 public sealed class TerminalCursorTests {
     private const string IdleCommand =
         "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 600\"";
+
     private SynchronizationContext? _previousContext;
 
-    private sealed class RenderCountingTerminal : Terminal {
+    private sealed class RenderCountingTerminal : TerminalEmulator {
         internal int RenderCount { get; private set; }
 
         protected override void OnRender(DrawingContext drawingContext) {
@@ -35,7 +36,9 @@ public sealed class TerminalCursorTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
@@ -60,15 +63,22 @@ public sealed class TerminalCursorTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
     private static void DrainDispatcher() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ContextIdle).Task);
     }
 
     private static void Write(TerminalEngine engine, string text) {
@@ -77,17 +87,18 @@ public sealed class TerminalCursorTests {
     }
 
     private static void RefreshFrame(RenderCountingTerminal terminal) {
-        typeof(Terminal).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
+        typeof(TerminalEmulator).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(terminal, new object[] { false });
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
-    private static void SetField<T>(Terminal terminal, string name, T value) {
-        typeof(Terminal).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(terminal, value);
+    private static void SetField<T>(TerminalEmulator terminal, string name, T value) {
+        typeof(TerminalEmulator).GetField(name,
+            BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(terminal, value);
     }
 
     private static byte[] RenderPixels(RenderCountingTerminal terminal) {
@@ -111,7 +122,9 @@ public sealed class TerminalCursorTests {
             DispatcherTimer timer = Field<DispatcherTimer>(terminal, "_timer");
             timer.Stop();
             TerminalSession session = Field<TerminalSession>(terminal, "_session");
-            if (baselineSequence.Length != 0) { Write(session.Engine, baselineSequence); }
+            if (baselineSequence.Length != 0) {
+                Write(session.Engine, baselineSequence);
+            }
             SetField(terminal, "_lastBlink", DateTime.UtcNow.AddDays(1));
             RefreshFrame(terminal);
             WaitFor(() => terminal.RenderCount > 0);
@@ -123,7 +136,9 @@ public sealed class TerminalCursorTests {
             DrawingGroup?[] retainedRows = (DrawingGroup?[])Field<DrawingGroup?[]>(terminal, "_rows").Clone();
             Assert.That(before.CursorVisible, Is.EqualTo(1), "The initial cursor must be visible for this check.");
             int renderCount = terminal.RenderCount;
-            if (hideBlinkingCursor) { SetField(terminal, "_cursorOn", false); }
+            if (hideBlinkingCursor) {
+                SetField(terminal, "_cursorOn", false);
+            }
 
             Write(session.Engine, updateSequence);
             SetField(terminal, "_lastBlink", DateTime.UtcNow.AddDays(1));
@@ -144,7 +159,9 @@ public sealed class TerminalCursorTests {
                 "A cursor-only VT update must change the rendered WPF output.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     private static void AssertUnrelatedFrameStateUnchanged(NativeFrame before, NativeFrame after) {

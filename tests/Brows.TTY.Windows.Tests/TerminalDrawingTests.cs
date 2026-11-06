@@ -9,10 +9,14 @@ namespace Brows.TTY.Tests;
 [TestFixture, Apartment(ApartmentState.STA)]
 public sealed class TerminalDrawingTests {
     private static IEnumerable<GlyphRun> GlyphRuns(Drawing drawing) {
-        if (drawing is GlyphRunDrawing glyph) { yield return glyph.GlyphRun; }
+        if (drawing is GlyphRunDrawing glyph) {
+            yield return glyph.GlyphRun;
+        }
         if (drawing is DrawingGroup group) {
             foreach (Drawing child in group.Children) {
-                foreach (GlyphRun run in GlyphRuns(child)) { yield return run; }
+                foreach (GlyphRun run in GlyphRuns(child)) {
+                    yield return run;
+                }
             }
         }
     }

@@ -2,5 +2,5 @@
 
 namespace Brows;
 
-public partial class App : Application {
+sealed partial class App : Application {
 }

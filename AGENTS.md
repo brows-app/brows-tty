@@ -9,7 +9,7 @@ nearby implementation and tests before making changes.
 - `source/Brows.TTY/` contains the UI-independent Ghostty core (`net462`, `net48`, `net8.0`, `net10.0`).
 - `source/Brows.TTY.Win32/` contains Windows ConPTY transport without WPF.
 - `source/Brows.TTY.Windows/` contains the WPF control and renderer.
-- The root namespace is `Brows`; the public control is `Brows.Windows.Controls.Terminal`.
+- The root namespace is `Brows`; the public control is `Brows.Windows.Controls.TerminalEmulator`.
 - `Ghostty/` owns terminal state and the hand-written native binding.
 - `Win32/` owns ConPTY sessions; native declarations live in `Win32/PlatformInvoke/`.
 - `Windows/Controls/` owns WPF rendering, input, and dispatcher lifecycle.

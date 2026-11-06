@@ -22,7 +22,9 @@ public sealed class TerminalSessionTests {
         string actual = "";
         while (elapsed.Elapsed < TimeSpan.FromSeconds(10)) {
             actual = ReadText(session);
-            if (actual.Contains(text)) { return; }
+            if (actual.Contains(text)) {
+                return;
+            }
             session.CheckError();
             await Task.Delay(20);
         }
@@ -123,7 +125,9 @@ public sealed class TerminalSessionTests {
 
     [Test]
     public async Task QueueOverflow_DropsInputWithoutPoisoningTheSession() {
-        /* ping ignores console input, so the queue stays full for the whole session. */
+        /*
+         * ping ignores console input, so the queue stays full for the whole session.
+         */
         using TerminalSession session = new(Shell + " /d /q /c \"ping -n 60 127.0.0.1 >nul\"", null, 80, 24);
         int quota = unchecked((int)0x80070718);
         session.Engine.Paste(new string('x', 17 * 1024 * 1024));
@@ -196,7 +200,9 @@ public sealed class TerminalSessionTests {
             Assert.That(SessionMethods.bt_win32_key(virtualKey),
                 Is.EqualTo((uint)expected), key + " must map to " + expected + ".");
         }
-        /* Generic modifier codes arrive from non-WPF callers; they map to the left side. */
+        /*
+         * Generic modifier codes arrive from non-WPF callers; they map to the left side.
+         */
         (uint virtualKey, TerminalKey expected)[] generic = {
             (0x10, TerminalKey.ShiftLeft),
             (0x11, TerminalKey.ControlLeft),
@@ -205,7 +211,8 @@ public sealed class TerminalSessionTests {
         };
         foreach ((uint virtualKey, TerminalKey expected) in generic) {
             Assert.That(SessionMethods.bt_win32_key(virtualKey),
-                Is.EqualTo((uint)expected), "Virtual key 0x" + virtualKey.ToString("x") + " must map to " + expected + ".");
+                Is.EqualTo((uint)expected),
+                "Virtual key 0x" + virtualKey.ToString("x") + " must map to " + expected + ".");
         }
     }
 

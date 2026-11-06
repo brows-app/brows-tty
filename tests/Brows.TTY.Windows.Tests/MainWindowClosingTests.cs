@@ -25,14 +25,16 @@ public sealed class MainWindowClosingTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
     }
 
-    private static Terminal GetTerminal(MainWindow window) {
-        return (Terminal)window.FindName("Console")!;
+    private static TerminalEmulator GetTerminal(MainWindow window) {
+        return (TerminalEmulator)window.FindName("Console")!;
     }
 
     private MainWindow CreateWindow() {
@@ -49,13 +51,14 @@ public sealed class MainWindowClosingTests {
         return window;
     }
 
-    private static SemaphoreSlim GetLifecycle(Terminal terminal) {
-        return (SemaphoreSlim)typeof(Terminal).GetField("_lifecycle",
+    private static SemaphoreSlim GetLifecycle(TerminalEmulator terminal) {
+        return (SemaphoreSlim)typeof(TerminalEmulator).GetField("_lifecycle",
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
     private static void DrainDispatcher() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ApplicationIdle).Task);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs args) {
@@ -77,9 +80,13 @@ public sealed class MainWindowClosingTests {
     public void TearDown() {
         try {
             foreach (MainWindow window in _windows) {
-                Terminal terminal = GetTerminal(window);
-                if (terminal.IsRunning) { Pump(terminal.StopAsync()); }
-                if (!window.IsVisible) { continue; }
+                TerminalEmulator terminal = GetTerminal(window);
+                if (terminal.IsRunning) {
+                    Pump(terminal.StopAsync());
+                }
+                if (!window.IsVisible) {
+                    continue;
+                }
                 TaskCompletionSource<bool> closed = new();
                 window.Closed += (sender, args) => closed.TrySetResult(true);
                 window.Close();
@@ -102,7 +109,9 @@ public sealed class MainWindowClosingTests {
         bool closeReturned = false;
         window.Closing += (sender, args) => {
             closingCount++;
-            if (!closeReturned) { closingCountBeforeCloseReturned++; }
+            if (!closeReturned) {
+                closingCountBeforeCloseReturned++;
+            }
         };
         window.Closed += (sender, args) => closed.TrySetResult(true);
 
@@ -120,7 +129,7 @@ public sealed class MainWindowClosingTests {
     [Test]
     public void ClosingSubscriberCanCancelInitialCloseAndRetry() {
         MainWindow window = CreateWindow();
-        Terminal terminal = GetTerminal(window);
+        TerminalEmulator terminal = GetTerminal(window);
         terminal.CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec") + "\" /d /q";
         TaskCompletionSource<bool> closed = new();
         int closingCount = 0;
@@ -154,14 +163,16 @@ public sealed class MainWindowClosingTests {
                 "A later close request should clean up and then raise the deferred Closing event.");
         }
         finally {
-            if (terminal.IsRunning) { Pump(terminal.StopAsync()); }
+            if (terminal.IsRunning) {
+                Pump(terminal.StopAsync());
+            }
         }
     }
 
     [Test]
     public void RepeatedCloseWhileStopIsPending_QueuesOneFinalClose() {
         MainWindow window = CreateWindow();
-        Terminal terminal = GetTerminal(window);
+        TerminalEmulator terminal = GetTerminal(window);
         SemaphoreSlim lifecycle = GetLifecycle(terminal);
         TaskCompletionSource<bool> closed = new();
         TaskCompletionSource<bool> deferredCloseCancelled = new();
@@ -184,7 +195,9 @@ public sealed class MainWindowClosingTests {
             closingCountBeforeRelease = closingCount;
             closedBeforeRelease = closed.Task.IsCompleted;
         }
-        finally { lifecycle.Release(); }
+        finally {
+            lifecycle.Release();
+        }
 
         Pump(deferredCloseCancelled.Task);
         DrainDispatcher();
@@ -202,7 +215,7 @@ public sealed class MainWindowClosingTests {
     [Test]
     public void CancelledDeferredClose_AllowsRestartAndStopsTheNewSessionOnRetry() {
         MainWindow window = CreateWindow();
-        Terminal terminal = GetTerminal(window);
+        TerminalEmulator terminal = GetTerminal(window);
         terminal.AutoStart = false;
         terminal.CommandLine = "\"" + Environment.GetEnvironmentVariable("ComSpec") + "\" /d /q";
         TaskCompletionSource<bool> deferredCloseCancelled = new();
@@ -232,20 +245,26 @@ public sealed class MainWindowClosingTests {
             Assert.That(closingCount, Is.EqualTo(4), "The retry should perform one stop and one final close.");
         }
         finally {
-            if (terminal.IsRunning) { Pump(terminal.StopAsync()); }
+            if (terminal.IsRunning) {
+                Pump(terminal.StopAsync());
+            }
         }
     }
 
     [Test]
     public void StopFailure_IsReportedAndDoesNotEscapeClosingCallback() {
         MainWindow window = CreateWindow();
-        Terminal terminal = GetTerminal(window);
+        TerminalEmulator terminal = GetTerminal(window);
         TextBlock status = (TextBlock)window.FindName("Status")!;
         GetLifecycle(terminal).Dispose();
         string initialStatus = status.Text;
         string expectedError = string.Empty;
-        try { terminal.StopAsync().GetAwaiter().GetResult(); }
-        catch (ObjectDisposedException exception) { expectedError = exception.Message; }
+        try {
+            terminal.StopAsync().GetAwaiter().GetResult();
+        }
+        catch (ObjectDisposedException exception) {
+            expectedError = exception.Message;
+        }
         Assert.That(expectedError, Is.Not.Empty, "The forced stop failure must be an ObjectDisposedException.");
         TaskCompletionSource<bool> closed = new();
         window.Closed += (sender, args) => closed.TrySetResult(true);

@@ -28,13 +28,15 @@ public sealed class TerminalScrollShortcutTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal scroll shortcut integration test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 800,
@@ -53,11 +55,17 @@ public sealed class TerminalScrollShortcutTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
     private static TerminalFrame ReadFrame(TerminalSession session) {
@@ -77,11 +85,15 @@ public sealed class TerminalScrollShortcutTests {
     private static int FirstHistoryRow(TerminalSession session) {
         foreach (string row in ReadRows(session)) {
             int marker = row.IndexOf(RowPrefix, StringComparison.Ordinal);
-            if (marker < 0) { continue; }
+            if (marker < 0) {
+                continue;
+            }
             int start = marker + RowPrefix.Length;
             bool parsed = int.TryParse(row.Substring(start, 3), NumberStyles.None,
                 CultureInfo.InvariantCulture, out int number);
-            if (parsed) { return number; }
+            if (parsed) {
+                return number;
+            }
         }
         Assert.Fail("The visible viewport contains no generated scrollback row.");
         return 0;
@@ -96,13 +108,13 @@ public sealed class TerminalScrollShortcutTests {
         session.Engine.Write(bytes, bytes.Length);
     }
 
-    private static void RaiseKey(Terminal terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
+    private static void RaiseKey(TerminalEmulator terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
         terminal.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         });
     }
 
-    private static void RaiseKeyPair(Terminal terminal, HwndSource source, KeyboardState keyboard,
+    private static void RaiseKeyPair(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
         Key key, ModifierKeys modifiers, out bool downHandled, out bool upHandled) {
         keyboard.SetModifiers(modifiers);
         Assert.That(Keyboard.Modifiers, Is.EqualTo(modifiers), "The requested modifier state must be active.");
@@ -119,8 +131,8 @@ public sealed class TerminalScrollShortcutTests {
         upHandled = up.Handled;
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
@@ -163,9 +175,15 @@ public sealed class TerminalScrollShortcutTests {
 
         internal void SetModifiers(ModifierKeys modifiers) {
             byte[] state = new byte[256];
-            if ((modifiers & ModifierKeys.Control) != 0) { state[0x11] = state[0xa2] = 0x80; }
-            if ((modifiers & ModifierKeys.Alt) != 0) { state[0x12] = state[0xa5] = 0x80; }
-            if ((modifiers & ModifierKeys.Shift) != 0) { state[0x10] = state[0xa0] = 0x80; }
+            if ((modifiers & ModifierKeys.Control) != 0) {
+                state[0x11] = state[0xa2] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Alt) != 0) {
+                state[0x12] = state[0xa5] = 0x80;
+            }
+            if ((modifiers & ModifierKeys.Shift) != 0) {
+                state[0x10] = state[0xa0] = 0x80;
+            }
             Assert.That(SetKeyboardState(state), Is.Not.Zero);
         }
 
@@ -187,7 +205,7 @@ public sealed class TerminalScrollShortcutTests {
 
     [Test]
     public void ScrollShortcuts_UseConfiguredRowsPagesAndHistoryBoundsWithoutSendingKeys() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -238,12 +256,14 @@ public sealed class TerminalScrollShortcutTests {
             SendBarrier(session);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void NonExactModifiers_ForwardPageKeyToChild() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -261,12 +281,14 @@ public sealed class TerminalScrollShortcutTests {
                 "Ctrl+PageUp lacks Shift and must be forwarded as a terminal key.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
     public void AlternateScreenScrollShortcuts_StayOnActiveScreenAndDoNotSendKeys() {
-        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        TerminalEmulator terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -287,6 +309,8 @@ public sealed class TerminalScrollShortcutTests {
             SendBarrier(session);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
 }
 }

@@ -15,7 +15,8 @@ public sealed class TerminalEngineTests {
     public void NativeFrame_UsesExpectedAbiAndDirtyRows() {
         Assert.That(Marshal.SizeOf<NativeCell>(), Is.EqualTo(24));
         Assert.That(Marshal.SizeOf<NativeFrame>(), Is.EqualTo(48));
-        using TerminalEngine terminal = new(20, 4, _ => { });
+        using TerminalEngine terminal = new(20, 4, _ => {
+        });
         TerminalFrame initial = terminal.ReadFrame();
         Assert.That(initial.ChangedRows.Count, Is.EqualTo(4));
         Assert.That(terminal.ReadFrame().ChangedRows, Is.Empty);
@@ -31,9 +32,12 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Utf8_SplitAcrossWrites_PreservesGraphemesAndWideCells() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         byte[] input = Encoding.UTF8.GetBytes("A\u754ce\u0301\U0001f642");
-        foreach (byte value in input) { terminal.Write(new[] { value }, 1); }
+        foreach (byte value in input) {
+            terminal.Write(new[] { value }, 1);
+        }
         TerminalRow row = terminal.ReadFrame().ChangedRows[0];
         Assert.That(row.GetText(0), Is.EqualTo("A"));
         Assert.That(row.GetText(1), Is.EqualTo("\u754c"));
@@ -45,7 +49,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void LargeGraphemeFrame_CopiesCompleteRowsAndPreservesPreviousSnapshot() {
-        using TerminalEngine terminal = new(512, 2, _ => { });
+        using TerminalEngine terminal = new(512, 2, _ => {
+        });
         string grapheme = "e" + new string('\u0301', 8);
         string text = string.Concat(Enumerable.Repeat(grapheme, 512));
         Write(terminal, text);
@@ -62,7 +67,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Sgr_ResolvesTrueColorInverseAndDecorations() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "\u001b[38;2;10;20;30m\u001b[48;2;40;50;60m\u001b[1;3;4;7mX");
         NativeCell cell = terminal.ReadFrame().ChangedRows[0].Cells[0];
         Assert.That(cell.Foreground, Is.EqualTo(0xff28323cu));
@@ -72,7 +78,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void ApplicationBackground_UpdatesExistingCellsAndResets() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "existing text");
         TerminalFrame initial = terminal.ReadFrame();
         Write(terminal, "\u001b]11;rgb:1212/3434/abab\u0007");
@@ -91,7 +98,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void ApplicationForegroundAndPalette_RecolorExistingCells() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "A\u001b[34mB");
         terminal.ReadFrame();
         Write(terminal, "\u001b]10;rgb:abab/3434/1212\u0007\u001b]4;4;rgb:1212/3434/abab\u0007");
@@ -118,7 +126,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void AlternateScreen_RestoresPrimaryContents() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "primary\u001b[?1049h\u001b[Halternate");
         TerminalRow alternate = terminal.ReadFrame().ChangedRows[0];
         Assert.That(string.Concat(Enumerable.Range(0, 9).Select(alternate.GetText)), Is.EqualTo("alternate"));
@@ -129,7 +138,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Resize_ReflowsTextAndChangesDimensions() {
-        using TerminalEngine terminal = new(10, 4, _ => { });
+        using TerminalEngine terminal = new(10, 4, _ => {
+        });
         Write(terminal, "abcdefghijklmnop");
         terminal.Resize(5, 6, 8, 16);
         TerminalFrame frame = terminal.ReadFrame();
@@ -185,7 +195,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Title_UnchangedFramesReuseDecodedString() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Assert.That(terminal.ReadFrame().Title, Is.Empty);
         string title = "shell \u00e9\u754c\U0001f642 " + new string('x', 1000);
         Write(terminal, "\u001b]2;" + title + "\u0007");
@@ -203,7 +214,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Title_EqualLengthUnicodeChangesPreservePreviousSnapshot() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "\u001b]2;caf\u00e9\u0007");
         TerminalFrame original = terminal.ReadFrame();
         Write(terminal, "\u001b]2;caf\u00f1\u0007");
@@ -217,7 +229,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Title_ShrinkClearAndRestoreDiscardStaleBytes() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "\u001b]2;long title \u00e9\u754c\U0001f642\u0007");
         TerminalFrame original = terminal.ReadFrame();
         Write(terminal, "\u001b]2;short\u0007");
@@ -236,7 +249,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void SynchronizedOutput_PreservesFrameUntilReleased() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "before\u001b[?2026h\rAFTER!");
         TerminalRow held = terminal.ReadFrame().ChangedRows[0];
         Assert.That(string.Concat(Enumerable.Range(0, 6).Select(held.GetText)), Is.EqualTo("before"));
@@ -247,8 +261,10 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void InvalidDimensionsAndDisposedUse_AreRejected() {
-        Assert.That(() => new TerminalEngine(0, 3, _ => { }), Throws.InvalidOperationException);
-        TerminalEngine terminal = new(20, 3, _ => { });
+        Assert.That(() => new TerminalEngine(0, 3, _ => {
+        }), Throws.InvalidOperationException);
+        TerminalEngine terminal = new(20, 3, _ => {
+        });
         Assert.That(() => terminal.Resize(0, 3, 8, 16), Throws.InvalidOperationException);
         Assert.That(() => terminal.Write(new byte[1], 2), Throws.TypeOf<ArgumentOutOfRangeException>());
         terminal.Dispose();
@@ -258,7 +274,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Selection_ExtractsUnicodeAndCanBeCleared() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "A\u754ce\u0301Z");
         terminal.Select(1, 0, 3, 0);
         Assert.That(terminal.SelectedText(), Is.EqualTo("\u754ce\u0301"));
@@ -272,7 +289,8 @@ public sealed class TerminalEngineTests {
 
     [Test]
     public void Scrollback_ReturnsEarlierLinesAndCanReturnToPrompt() {
-        using TerminalEngine terminal = new(20, 3, _ => { });
+        using TerminalEngine terminal = new(20, 3, _ => {
+        });
         Write(terminal, "one\r\ntwo\r\nthree\r\nfour\r\nfive");
         terminal.Scroll(-2);
         TerminalRow history = terminal.ReadFrame().ChangedRows[0];

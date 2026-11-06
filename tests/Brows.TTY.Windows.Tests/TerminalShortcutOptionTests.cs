@@ -27,6 +27,7 @@ public sealed class TerminalShortcutOptionTests {
     private const string ControlVReleaseBytes = "1b5b3131383b353a3375";
     private const string HistoryPrefix = "shortcut-row-";
     private const int HistoryRows = 180;
+
     private static readonly ShortcutOption[] ShortcutOptions = {
         new("PressEnterToCopy", Key.Enter, ModifierKeys.None, ShortcutGroup.Copy, null),
         new("PressControlPlusCToCopy", Key.C, ModifierKeys.Control, ShortcutGroup.Copy, null),
@@ -100,13 +101,15 @@ public sealed class TerminalShortcutOptionTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
     }
 
-    private static HwndSource Host(Terminal terminal) {
+    private static HwndSource Host(TerminalEmulator terminal) {
         HwndSourceParameters parameters = new("Terminal shortcut option test") {
             WindowStyle = unchecked((int)0x80000000),
             Width = 1600,
@@ -125,24 +128,31 @@ public sealed class TerminalShortcutOptionTests {
         TaskCompletionSource<bool> completion = new();
         DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(10) };
         timer.Tick += (sender, args) => {
-            if (condition()) { completion.TrySetResult(true); }
+            if (condition()) {
+                completion.TrySetResult(true);
+            }
         };
         timer.Start();
-        try { Pump(completion.Task); }
-        finally { timer.Stop(); }
+        try {
+            Pump(completion.Task);
+        }
+        finally {
+            timer.Stop();
+        }
     }
 
     private static void DrainDispatcher() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ContextIdle).Task);
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
     private static PropertyInfo GetClrProperty(string propertyName) {
-        PropertyInfo? property = typeof(Terminal).GetProperty(propertyName,
+        PropertyInfo? property = typeof(TerminalEmulator).GetProperty(propertyName,
             BindingFlags.Instance | BindingFlags.Public);
         Assert.That(property, Is.Not.Null, "Missing CLR property " + propertyName + ".");
         Assert.That(property!.PropertyType, Is.EqualTo(typeof(bool)), propertyName);
@@ -150,7 +160,7 @@ public sealed class TerminalShortcutOptionTests {
     }
 
     private static DependencyProperty GetDependencyProperty(string propertyName) {
-        FieldInfo? field = typeof(Terminal).GetField(propertyName + "Property",
+        FieldInfo? field = typeof(TerminalEmulator).GetField(propertyName + "Property",
             BindingFlags.Static | BindingFlags.Public);
         Assert.That(field, Is.Not.Null, "Missing dependency property field for " + propertyName + ".");
         DependencyProperty dependencyProperty = (DependencyProperty)field!.GetValue(null)!;
@@ -158,11 +168,11 @@ public sealed class TerminalShortcutOptionTests {
         return dependencyProperty;
     }
 
-    private static void SetOption(Terminal terminal, string propertyName, bool value) {
+    private static void SetOption(TerminalEmulator terminal, string propertyName, bool value) {
         terminal.SetValue(GetDependencyProperty(propertyName), value);
     }
 
-    private static TerminalSession StartKeyEcho(Terminal terminal) {
+    private static TerminalSession StartKeyEcho(TerminalEmulator terminal) {
         string architecture = Environment.GetEnvironmentVariable("PROCESSOR_ARCHITECTURE") ?? "AMD64";
         string rid = architecture.Equals("ARM64", StringComparison.OrdinalIgnoreCase) ? "win-arm64" : "win-x64";
         terminal.CommandLine = "\"" + Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
@@ -173,7 +183,7 @@ public sealed class TerminalShortcutOptionTests {
         return session;
     }
 
-    private static TerminalSession StartIdlePowerShell(Terminal terminal) {
+    private static TerminalSession StartIdlePowerShell(TerminalEmulator terminal) {
         terminal.CommandLine = "powershell.exe -NoLogo -NoProfile -Command \"Start-Sleep -Seconds 60\"";
         Pump(terminal.StartAsync());
         return Field<TerminalSession>(terminal, "_session");
@@ -215,7 +225,8 @@ public sealed class TerminalShortcutOptionTests {
         Clipboard.SetDataObject(data, false);
     }
 
-    private static KeyEventArgs RaiseKey(Terminal terminal, HwndSource source, Key key, RoutedEvent routedEvent) {
+    private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
+        RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };
@@ -223,7 +234,7 @@ public sealed class TerminalShortcutOptionTests {
         return args;
     }
 
-    private static TextCompositionEventArgs RaiseText(Terminal terminal, string text) {
+    private static TextCompositionEventArgs RaiseText(TerminalEmulator terminal, string text) {
         TextComposition composition = new(InputManager.Current, terminal, text);
         TextCompositionEventArgs args = new(Keyboard.PrimaryDevice, composition) {
             RoutedEvent = TextCompositionManager.TextInputEvent
@@ -232,13 +243,15 @@ public sealed class TerminalShortcutOptionTests {
         return args;
     }
 
-    private static void RaiseLocalShortcut(Terminal terminal, HwndSource source, KeyboardState keyboard,
+    private static void RaiseLocalShortcut(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
         ShortcutOption option) {
         keyboard.SetModifiers(option.Modifiers);
         Assert.That(Keyboard.Modifiers, Is.EqualTo(option.Modifiers));
         KeyEventArgs press = RaiseKey(terminal, source, option.Key, Keyboard.PreviewKeyDownEvent);
         Assert.That(press.Handled, Is.True);
-        if (option.Text is not null) { RaiseText(terminal, option.Text); }
+        if (option.Text is not null) {
+            RaiseText(terminal, option.Text);
+        }
         KeyEventArgs release = RaiseKey(terminal, source, option.Key, Keyboard.PreviewKeyUpEvent);
         Assert.That(release.Handled, Is.True);
         keyboard.SetModifiers(ModifierKeys.None);
@@ -255,11 +268,15 @@ public sealed class TerminalShortcutOptionTests {
     private static int FirstHistoryRow(TerminalSession session) {
         foreach (string row in ReadText(session).Split('\n')) {
             int marker = row.IndexOf(HistoryPrefix, StringComparison.Ordinal);
-            if (marker < 0) { continue; }
+            if (marker < 0) {
+                continue;
+            }
             int start = marker + HistoryPrefix.Length;
             bool parsed = int.TryParse(row.Substring(start, 3), NumberStyles.None,
                 CultureInfo.InvariantCulture, out int number);
-            if (parsed) { return number; }
+            if (parsed) {
+                return number;
+            }
         }
         Assert.Fail("The visible viewport contains no generated history row.");
         return 0;
@@ -284,9 +301,9 @@ public sealed class TerminalShortcutOptionTests {
     public void ShortcutOption_DefaultsTrueAndRoundTripsThroughClrAndDependencyProperty(string propertyName) {
         DependencyProperty dependencyProperty = GetDependencyProperty(propertyName);
         PropertyInfo clrProperty = GetClrProperty(propertyName);
-        Terminal first = new() { AutoStart = false };
-        Terminal second = new() { AutoStart = false };
-        Assert.That(dependencyProperty.GetMetadata(typeof(Terminal)).DefaultValue, Is.True, propertyName);
+        TerminalEmulator first = new() { AutoStart = false };
+        TerminalEmulator second = new() { AutoStart = false };
+        Assert.That(dependencyProperty.GetMetadata(typeof(TerminalEmulator)).DefaultValue, Is.True, propertyName);
         Assert.That(first.ReadLocalValue(dependencyProperty), Is.EqualTo(DependencyProperty.UnsetValue));
         Assert.That(clrProperty.GetValue(first), Is.True, propertyName);
         Assert.That(clrProperty.GetValue(second), Is.True, propertyName);
@@ -306,16 +323,16 @@ public sealed class TerminalShortcutOptionTests {
     [Test]
     public void ShortcutOptions_AreSettableInXamlAndSupportBindings() {
         foreach (ShortcutOption option in ShortcutOptions) {
-            string xaml = "<controls:Terminal xmlns:controls=\"clr-namespace:Brows.Windows.Controls;"
+            string xaml = "<controls:TerminalEmulator xmlns:controls=\"clr-namespace:Brows.Windows.Controls;"
                 + "assembly=Brows.TTY.Windows\" " + option.PropertyName + "=\"False\" />";
-            Terminal xamlTerminal = (Terminal)XamlReader.Parse(xaml);
+            TerminalEmulator xamlTerminal = (TerminalEmulator)XamlReader.Parse(xaml);
             DependencyProperty dependencyProperty = GetDependencyProperty(option.PropertyName);
             PropertyInfo clrProperty = GetClrProperty(option.PropertyName);
             Assert.That(clrProperty.GetValue(xamlTerminal), Is.False, option.PropertyName);
             Assert.That(xamlTerminal.GetValue(dependencyProperty), Is.False, option.PropertyName);
 
             BooleanSource source = new() { Value = true };
-            Terminal boundTerminal = new() { AutoStart = false };
+            TerminalEmulator boundTerminal = new() { AutoStart = false };
             BindingOperations.SetBinding(boundTerminal, dependencyProperty,
                 new Binding(nameof(BooleanSource.Value)) { Source = source, Mode = BindingMode.OneWay });
             Assert.That(clrProperty.GetValue(boundTerminal), Is.True, option.PropertyName);
@@ -328,7 +345,7 @@ public sealed class TerminalShortcutOptionTests {
     [TestCaseSource(nameof(CopyCases))]
     public void DisabledCopy_PreservesSelectionClipboardAndForwardsKey(string propertyName, Key key,
         ModifierKeys modifiers, string? text) {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
@@ -346,7 +363,9 @@ public sealed class TerminalShortcutOptionTests {
             HashSet<Key> forwardedKeys = Field<HashSet<Key>>(terminal, "_forwardedKeys");
             Assert.That(forwardedKeys, Does.Contain(key), propertyName);
             Assert.That(press.Handled, Is.True, propertyName);
-            if (text is not null) { RaiseText(terminal, text); }
+            if (text is not null) {
+                RaiseText(terminal, text);
+            }
             KeyEventArgs release = RaiseKey(terminal, source, key, Keyboard.PreviewKeyUpEvent);
             keyboard.SetModifiers(ModifierKeys.None);
             Assert.That(release.Handled, Is.False, propertyName);
@@ -367,7 +386,7 @@ public sealed class TerminalShortcutOptionTests {
     [TestCaseSource(nameof(PasteCases))]
     public void DisabledPaste_ForwardsKeyWithoutClipboardPayloadOrBracketedPaste(string propertyName, Key key,
         ModifierKeys modifiers, string? text) {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
@@ -380,7 +399,9 @@ public sealed class TerminalShortcutOptionTests {
             HashSet<Key> forwardedKeys = Field<HashSet<Key>>(terminal, "_forwardedKeys");
             Assert.That(forwardedKeys, Does.Contain(key), propertyName);
             Assert.That(press.Handled, Is.True, propertyName);
-            if (text is not null) { RaiseText(terminal, text); }
+            if (text is not null) {
+                RaiseText(terminal, text);
+            }
             KeyEventArgs release = RaiseKey(terminal, source, key, Keyboard.PreviewKeyUpEvent);
             keyboard.SetModifiers(ModifierKeys.None);
             Assert.That(release.Handled, Is.False, propertyName);
@@ -403,7 +424,7 @@ public sealed class TerminalShortcutOptionTests {
     [TestCaseSource(nameof(ScrollCases))]
     public void DisabledScroll_LeavesBottomViewportUnchangedAndForwardsKey(string propertyName, Key key,
         ModifierKeys modifiers, string? text) {
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
@@ -436,7 +457,7 @@ public sealed class TerminalShortcutOptionTests {
     [TestCaseSource(nameof(FontCases))]
     public void DisabledFontShortcut_KeepsCurrentSizeAndForwardsKey(string propertyName, Key key,
         ModifierKeys modifiers, string? text) {
-        Terminal terminal = new() { AutoStart = false, FontSize = 18 };
+        TerminalEmulator terminal = new() { AutoStart = false, FontSize = 18 };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -453,7 +474,9 @@ public sealed class TerminalShortcutOptionTests {
             HashSet<Key> forwardedKeys = Field<HashSet<Key>>(terminal, "_forwardedKeys");
             Assert.That(forwardedKeys, Does.Contain(key), propertyName);
             Assert.That(terminal.FontSize, Is.EqualTo(19), propertyName);
-            if (text is not null) { RaiseText(terminal, text); }
+            if (text is not null) {
+                RaiseText(terminal, text);
+            }
             Assert.That(terminal.FontSize, Is.EqualTo(19), propertyName);
             KeyEventArgs release = RaiseKey(terminal, source, key, Keyboard.PreviewKeyUpEvent);
             keyboard.SetModifiers(ModifierKeys.None);
@@ -471,7 +494,7 @@ public sealed class TerminalShortcutOptionTests {
     [Test]
     public void LocalPress_StaysLocalAfterItsOptionTurnsOffBeforeTextAndRelease() {
         const string optionName = "PressControlPlusVToPaste";
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -506,7 +529,7 @@ public sealed class TerminalShortcutOptionTests {
     [Test]
     public void NewForwardedRepeat_RetiresOldLocalTrackingAndAllowsText() {
         const string optionName = "PressControlPlusVToPaste";
-        Terminal terminal = new() { AutoStart = false };
+        TerminalEmulator terminal = new() { AutoStart = false };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
         try {
@@ -603,7 +626,9 @@ public sealed class TerminalShortcutOptionTests {
         public bool Value {
             get;
             set {
-                if (field == value) { return; }
+                if (field == value) {
+                    return;
+                }
                 field = value;
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Value)));
             }

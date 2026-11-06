@@ -16,9 +16,10 @@ namespace Brows.TTY.Tests;
 public sealed class TerminalPerformanceTests {
     private const string IdleCommand =
         "powershell.exe -NoLogo -NoProfile -NonInteractive -Command \"Start-Sleep -Seconds 600\"";
+
     private SynchronizationContext? _previousContext;
 
-    private sealed class RenderCountingTerminal : Terminal {
+    private sealed class RenderCountingTerminal : TerminalEmulator {
         internal int RenderCount { get; private set; }
 
         protected override void OnRender(DrawingContext drawingContext) {
@@ -35,7 +36,9 @@ public sealed class TerminalPerformanceTests {
         Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
         task.ContinueWith(completed => dispatcher.BeginInvoke(new Action(() => frame.Continue = false)),
             TaskScheduler.Default);
-        if (!task.IsCompleted) { Dispatcher.PushFrame(frame); }
+        if (!task.IsCompleted) {
+            Dispatcher.PushFrame(frame);
+        }
         timeout.Stop();
         Assert.That(task.IsCompleted, Is.True, "Dispatcher operation exceeded 15 seconds.");
         task.GetAwaiter().GetResult();
@@ -75,37 +78,39 @@ public sealed class TerminalPerformanceTests {
         engine.Write(bytes, bytes.Length);
     }
 
-    private static T Field<T>(Terminal terminal, string name) {
-        return (T)typeof(Terminal).GetField(name,
+    private static T Field<T>(TerminalEmulator terminal, string name) {
+        return (T)typeof(TerminalEmulator).GetField(name,
             BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(terminal)!;
     }
 
-    private static void SetField<T>(Terminal terminal, string name, T value) {
-        typeof(Terminal).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(terminal, value);
+    private static void SetField<T>(TerminalEmulator terminal, string name, T value) {
+        typeof(TerminalEmulator).GetField(name,
+            BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(terminal, value);
     }
 
-    private static void Invoke(Terminal terminal, string name, params object?[] arguments) {
-        MethodInfo? method = typeof(Terminal).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
+    private static void Invoke(TerminalEmulator terminal, string name, params object?[] arguments) {
+        MethodInfo? method = typeof(TerminalEmulator).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.That(method, Is.Not.Null, "Expected terminal operation " + name + ".");
         method!.Invoke(terminal, arguments);
     }
 
-    private static void QueueSelection(Terminal terminal, Point endpoint) {
+    private static void QueueSelection(TerminalEmulator terminal, Point endpoint) {
         Invoke(terminal, "QueueSelection", endpoint);
     }
 
-    private static void BeginSelection(Terminal terminal, TerminalSession session) {
+    private static void BeginSelection(TerminalEmulator terminal, TerminalSession session) {
         session.Engine.Select(0, 0, 0, 0);
         SetField(terminal, "_selectionStart", new Point(0, 0));
         SetField(terminal, "_selectionEnd", new Point(0, 0));
     }
 
-    private static void RefreshFrame(Terminal terminal) {
+    private static void RefreshFrame(TerminalEmulator terminal) {
         Invoke(terminal, "RefreshFrame", false);
     }
 
     private static void DrainDispatcher() {
-        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task);
+        Pump(Dispatcher.CurrentDispatcher.InvokeAsync(() => {
+        }, DispatcherPriority.ContextIdle).Task);
     }
 
     [SetUp]
@@ -145,7 +150,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(Field<bool>(terminal, "_selectionPending"), Is.False);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -166,7 +173,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(Field<bool>(terminal, "_selectionPending"), Is.False);
             Assert.That(Field<Point?>(terminal, "_selectionStart"), Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -184,7 +193,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(Clipboard.GetText(), Is.EqualTo("ABCDE"));
             Assert.That(Field<bool>(terminal, "_selectionPending"), Is.False);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -205,7 +216,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(Field<bool>(terminal, "_selectionPending"), Is.False);
             Assert.That(Field<Point?>(terminal, "_selectionStart"), Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -228,7 +241,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(secondSession.Engine.SelectedText(), Is.Empty,
                 "A queued endpoint from the previous session must not affect a restart.");
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -260,7 +275,9 @@ public sealed class TerminalPerformanceTests {
                 "A sub-cell layout change must retain the existing row drawing.");
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -284,7 +301,9 @@ public sealed class TerminalPerformanceTests {
             Assert.That(Field<bool>(terminal, "_forceFrame"), Is.False);
             Assert.That(terminal.LastError, Is.Null);
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -313,7 +332,9 @@ public sealed class TerminalPerformanceTests {
                     "A hidden or non-blinking cursor must not trigger elapsed-time rendering.");
             }
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 
     [Test]
@@ -337,6 +358,8 @@ public sealed class TerminalPerformanceTests {
             Assert.That(terminal.RenderCount, Is.GreaterThan(renderCount),
                 "Visible blinking cursors must continue to repaint on their blink interval.");
         }
-        finally { Pump(terminal.StopAsync()); }
+        finally {
+            Pump(terminal.StopAsync());
+        }
     }
 }

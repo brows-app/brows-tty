@@ -36,9 +36,9 @@ place.
 ### #2 (Resolved) — High: selection dragging rebuilds the full screen per raw mouse move
 
 **Evidence:** every selecting `OnMouseMove` calls `ApplyLocal` synchronously
-(`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:476-485`), and `ApplyLocal` performs
-`Engine.Select` plus an immediate `RefreshFrame` (`Terminal.cs:276-282`). Changed rows are then
-copied and rebuilt at `Terminal.cs:214-227`.
+(`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:476-485`), and `ApplyLocal` performs
+`Engine.Select` plus an immediate `RefreshFrame` (`TerminalEmulator.cs:276-282`). Changed rows are then
+copied and rebuilt at `TerminalEmulator.cs:214-227`.
 
 There is no same-cell check or render-tick coalescing. In the pinned Ghostty implementation,
 selection marks screen dirty state and the render update treats any such flag as a full rebuild
@@ -107,7 +107,7 @@ preserve the exact held-frame behavior.
 **Evidence:** `TerminalEngine.ReadFrame` allocates a new `NativeCell[]`, a new text `byte[]`, and
 a `TerminalRow` for every dirty row (`source/Brows.TTY/Ghostty/TerminalEngine.cs:145-169`).
 `GC.AllocateUninitializedArray` avoids initialization, not allocation or GC tracking. WPF retains
-the resulting rows and drawings (`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:224-227`,
+the resulting rows and drawings (`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:224-227`,
 `303-325`).
 
 A 200x50 full dirty frame allocates 50 cell arrays, 50 text arrays, and 50 row objects per frame,
@@ -141,10 +141,10 @@ advance-width arrays by run length is a further profiling-led option, not a prer
 ### #7 (Resolved) — Medium: sub-cell size changes trigger redundant native resizes and forced frames
 
 **Evidence:** every `OnRenderSizeChanged` sets `_forceFrame`
-(`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:340-343`). `ConfigureSize` treats that
+(`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:340-343`). `ConfigureSize` treats that
 flag as a size change even when calculated columns and rows are unchanged, calls
-`_session.Resize`, and leaves a forced frame pending (`Terminal.cs:195-219`). The next refresh
-requests and rebuilds every row (`Terminal.cs:214-227`).
+`_session.Resize`, and leaves a forced frame pending (`TerminalEmulator.cs:195-219`). The next refresh
+requests and rebuilds every row (`TerminalEmulator.cs:214-227`).
 
 Dragging a window edge by a few pixels without crossing a cell boundary therefore invokes both
 Ghostty and ConPTY resize paths, native full-frame extraction, managed row copies, and WPF row
@@ -158,8 +158,8 @@ session is stopped.
 ### #8 — Medium: an idle running terminal performs native frame work about 60 times per second
 
 **Evidence:** the 16 ms dispatcher timer starts with every session
-(`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:585-589`, `618-620`). Every tick performs
-transport checks and `RefreshFrame` (`Terminal.cs:244-259`), even without output. An empty frame
+(`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:585-589`, `618-620`). Every tick performs
+transport checks and `RefreshFrame` (`TerminalEmulator.cs:244-259`), even without output. An empty frame
 still allocates managed frame/list objects (`source/Brows.TTY/Ghostty/TerminalEngine.cs:140-174`),
 takes locks, updates render state, queries colors/cursor/mouse/title state, and compares title
 bytes (`native/bridge/brows_ghostty.c:137-180`;
@@ -179,10 +179,10 @@ refresh.
 ### #9 (Partially resolved) — Medium: cursor invalidation re-emits every row, including useless hidden/non-blinking blinks
 
 **Evidence:** elapsed-time `blink` is calculated without checking whether the cursor is running,
-visible, or blinking (`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:228-241`). Every 500 ms
+visible, or blinking (`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:228-241`). Every 500 ms
 it toggles state and invalidates the visual even when that state cannot affect output. Every
 `OnRender` then fills the background and calls `DrawDrawing` for every retained row before drawing
-the cursor (`Terminal.cs:303-336`).
+the cursor (`TerminalEmulator.cs:303-336`).
 
 Frozen row groups avoid glyph reconstruction, as the cursor tests verify
 (`tests/Brows.TTY.Windows.Tests/TerminalCursorTests.cs:123-139`), but sparse cursor/status updates
@@ -201,7 +201,7 @@ and the existing cursor-only repaint tests.
 bytes, rents a buffer, converts the whole string, enters native paste encoding, and clears the
 rented buffer (`source/Brows.TTY/Ghostty/TerminalEngine.cs:49-71`; native paste encoding at
 `native/bridge/brows_ghostty.c:269-278`). WPF paste executes synchronously on the dispatcher
-(`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:659-662`).
+(`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:659-662`).
 
 The existing 17 MiB queue-overflow tests therefore perform multiple full-input passes and a large
 allocation before an intentional drop (`tests/Brows.TTY.Windows.Tests/TerminalSessionTests.cs:125-134`;
@@ -235,7 +235,7 @@ throws. Preserve this secret hygiene; do not remove clearing altogether.
 ### #12 — Low: rows repaint the default background over the control background
 
 **Evidence:** `OnRender` fills the whole control with the effective default background
-(`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:321-325`). `DrawRow` nevertheless emits
+(`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:321-325`). `DrawRow` nevertheless emits
 background rectangles for every run, including a full-row rectangle when every cell uses that
 same default (`source/Brows.TTY.Windows/Windows/Controls/TerminalDrawing.cs:117-130`).
 
@@ -612,9 +612,9 @@ isolated test tools and logs remain ignored under out/.
 ### #21 (Resolved) - Changing a shortcut option during a press could leak its text
 
 The initial configurable-shortcut implementation checked the live dependency
-property again in Terminal.OnTextInput after a local key-down had already been
+property again in TerminalEmulator.OnTextInput after a local key-down had already been
 handled. Turning that property off before text arrived could forward part of the
-consumed press to the child. Terminal.cs now retains the key-down decision for
+consumed press to the child. TerminalEmulator.cs now retains the key-down decision for
 text and release events. A subsequent forwarded press removes stale local-key
 tracking, so disabling a shortcut also works while the key repeats.
 
@@ -625,7 +625,7 @@ paste, key, release and barrier bytes.
 
 ### Configurable shortcut acceptance
 
-- Added 20 independent public Boolean dependency properties on Terminal, all
+- Added 20 independent public Boolean dependency properties on TerminalEmulator, all
   named Press... and all defaulting to true. They cover local clipboard,
   history-scrolling and font actions. False follows normal terminal input;
   window-host gestures, mouse actions and explicit API calls are unaffected.
@@ -646,7 +646,7 @@ paste, key, release and barrier bytes.
 
 ### #22 (Resolved) - A collapsed terminal resizes its active grid to one cell
 
-`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:305` computes terminal
+`source/Brows.TTY.Windows/Windows/Controls/TerminalEmulator.cs:305` computes terminal
 columns and rows from layout dimensions, clamping each to at least one even when
 no cell fits. In the sample, the fixed sidebar can leave the terminal with zero
 width during a horizontal shrink. ConfigureSize sends a one-column resize to
@@ -673,7 +673,7 @@ screen continues to match ConPTY. Changing that flag would regress cursor
 alignment. The sample instead gives its terminal Grid column a 320-DIP minimum:
 a narrow window clips this usable layout while retaining about 34 text columns.
 The window can still shrink freely. This sample policy does not impose a global
-minimum on Terminal or change valid small-grid reflow semantics.
+minimum on TerminalEmulator or change valid small-grid reflow semantics.
 
 Parent reran the exact gradual sample reproduction: 78 -> 45 -> 34 columns,
 retaining 34 while fully clipped, then 78 on expansion. After each Enter, 26

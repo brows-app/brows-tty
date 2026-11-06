@@ -1,4 +1,5 @@
 ﻿<Window x:Class="Brows.MainWindow"
+        x:ClassModifier="internal"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:tty="http://schemas.brows.app/winfx/2026/xaml/presentation"
@@ -40,7 +41,8 @@
     </Border>
     <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="#CCCCCC" Margin="12,4"
                Text="Starting shell…" />
-    <Grid>
+    <Grid tty:TerminalEmulator.TerminalExited="TerminalExited"
+          tty:TerminalEmulator.TerminalFailed="TerminalFailed">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="290" />
         <ColumnDefinition Width="*" MinWidth="320" />
@@ -133,8 +135,7 @@
           </ScrollViewer>
         </DockPanel>
       </Border>
-      <tty:Terminal x:Name="Console" Grid.Column="1" Margin="8" FontSize="16"
-                    ProcessExited="ProcessExited" Failed="TerminalFailed" />
+      <tty:TerminalEmulator x:Name="Console" Grid.Column="1" Margin="8" FontSize="16" />
     </Grid>
   </DockPanel>
 </Window>

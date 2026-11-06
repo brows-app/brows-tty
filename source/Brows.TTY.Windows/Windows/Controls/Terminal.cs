@@ -38,6 +38,7 @@ public class Terminal : Control {
     private Point? _selectionEnd;
     private Point? _pendingSelectionEnd;
     private bool _selectionPending;
+    private bool _copyMouseUpPending;
     private uint _textKey;
     private Key _textPressKey;
     private Action? _pendingControlAltPress;
@@ -301,6 +302,25 @@ public class Terminal : Control {
         catch (Exception exception) { HandleFailure(session, exception); }
     }
 
+    private bool TryCopySelection() {
+        TerminalSession? session = _session;
+        if (session is null) { return false; }
+        try {
+            ApplyPendingSelection();
+            string text = session.Engine.SelectedText();
+            if (text.Length == 0) { return false; }
+            Clipboard.SetText(text);
+            session.Engine.Select(0, 0, 0, 0, true);
+            ClearSelectionDrag();
+            ReleaseMouseCapture();
+            RefreshFrame();
+        }
+        catch (Exception exception) {
+            HandleFailure(session, exception);
+        }
+        return true;
+    }
+
     private void ClearSelectionDrag() {
         _selectionStart = null;
         _selectionEnd = null;
@@ -424,11 +444,21 @@ public class Terminal : Control {
             /* Leave window close and the system menu to the host. */
             return;
         }
+        bool controlCopy = key == Key.C && mods == ModifierKeys.Control;
+        if (controlCopy) {
+            bool copyHandled = _shortcutKeys.Contains(key) || TryCopySelection();
+            if (copyHandled) {
+                _shortcutKeys.Add(key);
+                _textPressKey = key;
+                args.Handled = true;
+                return;
+            }
+        }
         bool copy = (key == Key.C && mods == (ModifierKeys.Control | ModifierKeys.Shift))
             || (key == Key.Insert && mods == ModifierKeys.Control);
         bool paste = (key == Key.V && mods == (ModifierKeys.Control | ModifierKeys.Shift))
             || (key == Key.Insert && mods == ModifierKeys.Shift);
-        if (copy) { _shortcutKeys.Add(key); CopySelection(); args.Handled = true; return; }
+        if (copy) { _shortcutKeys.Add(key); _textPressKey = key; CopySelection(); args.Handled = true; return; }
         if (paste) { _shortcutKeys.Add(key); PasteClipboard(); args.Handled = true; return; }
         _textKey = (uint)KeyInterop.VirtualKeyFromKey(key);
         _textPressKey = key;
@@ -470,6 +500,14 @@ public class Terminal : Control {
         if (systemMenu) { return; }
         string text = string.IsNullOrEmpty(args.Text) ? args.SystemText : args.Text;
         if (string.IsNullOrEmpty(text)) { return; }
+        ModifierKeys textModifiers = Keyboard.Modifiers;
+        bool copyModifiers = textModifiers == ModifierKeys.Control
+            || textModifiers == (ModifierKeys.Control | ModifierKeys.Shift);
+        bool copyShortcutText = copyModifiers && _shortcutKeys.Contains(_textPressKey);
+        if (copyShortcutText) {
+            args.Handled = true;
+            return;
+        }
         bool controlAltText = _pendingControlAltPress is not null
             || ReferenceEquals(_controlAltComposition, args.TextComposition);
         CancelControlAltPress();
@@ -520,6 +558,14 @@ public class Terminal : Control {
         base.OnMouseDown(args);
         Focus();
         if (_session is null) { return; }
+        if (args.ChangedButton == MouseButton.Right) {
+            _copyMouseUpPending = false;
+            if (TryCopySelection()) {
+                _copyMouseUpPending = true;
+                args.Handled = true;
+                return;
+            }
+        }
         FlushPendingSelection();
         ClearSelectionDrag();
         if (ReportsMouse) {
@@ -552,6 +598,12 @@ public class Terminal : Control {
     /// <inheritdoc />
     protected override void OnMouseUp(MouseButtonEventArgs args) {
         base.OnMouseUp(args);
+        bool copiedWithRightButton = args.ChangedButton == MouseButton.Right && _copyMouseUpPending;
+        if (copiedWithRightButton) {
+            _copyMouseUpPending = false;
+            args.Handled = true;
+            return;
+        }
         FlushPendingSelection();
         if (ReportsMouse) {
             SendMouse(args, 1,
@@ -668,6 +720,7 @@ public class Terminal : Control {
         try {
             if (IsRunning) { return; }
             ClearSelectionDrag();
+            _copyMouseUpPending = false;
             _cursorOn = true;
             _lastBlink = DateTime.UtcNow;
             CancelControlAltPress();
@@ -713,6 +766,7 @@ public class Terminal : Control {
             CancelControlAltPress();
             _controlAltComposition = null;
             ClearSelectionDrag();
+            _copyMouseUpPending = false;
             _cursorOn = true;
             _lastBlink = DateTime.UtcNow;
             _shortcutKeys.Clear();
@@ -737,18 +791,11 @@ public class Terminal : Control {
     }
 
     /// <summary>
-    /// Copies the selected terminal text to the Windows clipboard.
+    /// Copies the selected terminal text to the Windows clipboard and clears the selection after a successful copy.
     /// </summary>
     public void CopySelection() {
         VerifyAccess();
-        if (_session is null) { return; }
-        FlushPendingSelection();
-        if (_session is null) { return; }
-        try {
-            string text = _session.Engine.SelectedText();
-            if (text.Length != 0) { Clipboard.SetText(text); }
-        }
-        catch (Exception exception) { ReportFailure(exception); }
+        TryCopySelection();
     }
 
     /// <summary>

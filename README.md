@@ -52,11 +52,14 @@ Windows/.NET runtime; an emulated x64 process loads the x64 native libraries.
 - Alt+F4 closes the host window; Alt+Space opens its system menu. These
   shortcuts remain available while the terminal has focus.
 - Drag to select text; use Shift+drag when an application captures the mouse.
-- Copy with Ctrl+Shift+C or Ctrl+Insert; paste with Ctrl+Shift+V or Shift+Insert.
+- Copy selected text with Ctrl+C, Ctrl+Shift+C, Ctrl+Insert, or right-click.
+  A successful copy clears the selection. With no selection, Ctrl+C reaches the
+  process. Paste with Ctrl+Shift+V or Shift+Insert.
 - The mouse wheel scrolls terminal history or is forwarded to a mouse-aware
   application. Hold Shift to scroll history locally.
 - `Paste(string)` sends text using Ghostty's bracketed-paste handling. It does
-  not append Enter. `CopySelection()` and `PasteClipboard()` use the clipboard.
+  not append Enter. `CopySelection()` copies and clears the selection;
+  `PasteClipboard()` pastes clipboard text.
 - `Title`, `IsRunning`, and `LastError` are read-only dependency properties.
   `ProcessExited` reports the root process exit code after output is drained;
   `Failed` reports automatic-operation/input failures. Explicit async lifecycle

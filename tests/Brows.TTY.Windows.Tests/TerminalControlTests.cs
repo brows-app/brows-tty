@@ -337,6 +337,181 @@ public sealed class TerminalControlTests {
         finally { Pump(terminal.StopAsync()); }
     }
 
+    [TestCase(Key.C, ModifierKeys.Control)]
+    [TestCase(Key.C, ModifierKeys.Control | ModifierKeys.Shift)]
+    [TestCase(Key.Insert, ModifierKeys.Control)]
+    public void CopyShortcut_CopiesPendingSelectionAndClearsItWithoutSendingKeys(Key key, ModifierKeys modifiers) {
+        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        using HwndSource source = Host(terminal);
+        using KeyboardState keyboard = new();
+        try {
+            Pump(terminal.StartAsync());
+            TerminalSession session = Field<TerminalSession>(terminal, "_session");
+            WaitFor(() => ReadText(session).Contains("key-echo-ready"));
+            Field<DispatcherTimer>(terminal, "_timer").Stop();
+            byte[] text = Encoding.UTF8.GetBytes("\u001b[2J\u001b[Hcopied-text");
+            session.Engine.Write(text, text.Length);
+            session.Engine.Select(0, 0, 0, 0);
+            typeof(Terminal).GetField("_selectionStart", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(terminal, new Point(0, 0));
+            typeof(Terminal).GetField("_selectionEnd", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(terminal, new Point(0, 0));
+            typeof(Terminal).GetMethod("QueueSelection", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(terminal, new object[] { new Point(5, 0) });
+            Clipboard.SetText("unchanged");
+            keyboard.SetModifiers(modifiers);
+
+            RaiseKey(terminal, source, key, Keyboard.PreviewKeyDownEvent);
+            RaiseKey(terminal, source, key, Keyboard.PreviewKeyDownEvent);
+            terminal.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice,
+                new InputComposition(terminal, "\u0003", false, false)) {
+                RoutedEvent = TextCompositionManager.TextInputEvent
+            });
+            RaiseKey(terminal, source, key, Keyboard.PreviewKeyUpEvent);
+
+            Assert.That(Clipboard.GetText(), Is.EqualTo("copied"));
+            Assert.That(session.Engine.SelectedText(), Is.Empty);
+            Assert.That(Field<Point?>(terminal, "_selectionStart"), Is.Null);
+            Assert.That(Field<bool>(terminal, "_selectionPending"), Is.False);
+            Assert.That(Field<TerminalRow?[]>(terminal, "_rowSnapshots")
+                .Where(row => row is not null).SelectMany(row => row!.Cells).All(cell => cell.Selected == 0), Is.True);
+            byte[] newline = Encoding.UTF8.GetBytes("\r\n");
+            session.Engine.Write(newline, newline.Length);
+            session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
+            WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
+            Assert.That(ReadKeyBytes(session), Is.EqualTo("21"), "Copy must not send a press or release to the child.");
+            Assert.That(terminal.LastError, Is.Null);
+        }
+        finally { Pump(terminal.StopAsync()); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RightClick_CopiesSelectionAndSuppressesBothMouseEvents(bool mouseTracking) {
+        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        using HwndSource source = Host(terminal);
+        try {
+            Pump(terminal.StartAsync());
+            TerminalSession session = Field<TerminalSession>(terminal, "_session");
+            WaitFor(() => ReadText(session).Contains("key-echo-ready"));
+            Field<DispatcherTimer>(terminal, "_timer").Stop();
+            string modes = mouseTracking ? "\u001b[?1000h\u001b[?1006h" : "";
+            byte[] text = Encoding.UTF8.GetBytes("\u001b[2J\u001b[Hcopied-text" + modes);
+            session.Engine.Write(text, text.Length);
+            session.Engine.Select(0, 0, 5, 0);
+            typeof(Terminal).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(terminal, new object[] { false });
+            Clipboard.SetText("unchanged");
+
+            terminal.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right) {
+                RoutedEvent = Mouse.MouseDownEvent
+            });
+            terminal.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right) {
+                RoutedEvent = Mouse.MouseUpEvent
+            });
+
+            Assert.That(Clipboard.GetText(), Is.EqualTo("copied"));
+            Assert.That(session.Engine.SelectedText(), Is.Empty);
+            byte[] newline = Encoding.UTF8.GetBytes("\r\n");
+            session.Engine.Write(newline, newline.Length);
+            session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
+            WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
+            Assert.That(ReadKeyBytes(session), Is.EqualTo("21"), "Local copy must not send an orphan mouse release.");
+            Assert.That(terminal.LastError, Is.Null);
+        }
+        finally { Pump(terminal.StopAsync()); }
+    }
+
+    [Test]
+    public void ControlC_WithoutSelectionStillReachesChild() {
+        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        using HwndSource source = Host(terminal);
+        using KeyboardState keyboard = new();
+        try {
+            Pump(terminal.StartAsync());
+            TerminalSession session = Field<TerminalSession>(terminal, "_session");
+            WaitFor(() => ReadText(session).Contains("key-echo-ready"));
+            Clipboard.SetText("unchanged");
+            keyboard.SetModifiers(ModifierKeys.Control);
+
+            RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyDownEvent);
+            RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyUpEvent);
+            session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
+
+            WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
+            Assert.That(ReadKeyBytes(session), Is.EqualTo("1b5b39393b35751b5b39393b353a337521"));
+            Assert.That(Clipboard.GetText(), Is.EqualTo("unchanged"));
+            Assert.That(terminal.LastError, Is.Null);
+        }
+        finally { Pump(terminal.StopAsync()); }
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void RightClick_WithoutSelectionPreservesClipboardAndApplicationMouseInput(bool mouseTracking) {
+        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        using HwndSource source = Host(terminal);
+        try {
+            Pump(terminal.StartAsync());
+            TerminalSession session = Field<TerminalSession>(terminal, "_session");
+            WaitFor(() => ReadText(session).Contains("key-echo-ready"));
+            if (mouseTracking) {
+                byte[] modes = Encoding.UTF8.GetBytes("\u001b[?1000h\u001b[?1006h");
+                session.Engine.Write(modes, modes.Length);
+                typeof(Terminal).GetMethod("RefreshFrame", BindingFlags.Instance | BindingFlags.NonPublic)!
+                    .Invoke(terminal, new object[] { false });
+            }
+            Clipboard.SetText("unchanged");
+
+            terminal.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right) {
+                RoutedEvent = Mouse.MouseDownEvent
+            });
+            terminal.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Right) {
+                RoutedEvent = Mouse.MouseUpEvent
+            });
+            session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
+
+            WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
+            string input = ReadKeyBytes(session);
+            if (mouseTracking) {
+                Assert.That(input, Does.StartWith("1b5b3c32"), "The application must receive SGR right-button input.");
+                Assert.That(input, Does.Contain("4d"), "The button press must reach the application.");
+                Assert.That(input, Does.Contain("6d"), "The button release must reach the application.");
+            }
+            else {
+                Assert.That(input, Is.EqualTo("21"));
+            }
+            Assert.That(Clipboard.GetText(), Is.EqualTo("unchanged"));
+            Assert.That(terminal.LastError, Is.Null);
+        }
+        finally { Pump(terminal.StopAsync()); }
+    }
+    [Test]
+    public void CopyShortcut_AllowsAltGrTextWhenModifiersChange() {
+        Terminal terminal = new() { AutoStart = false, CommandLine = KeyEchoCommand() };
+        using HwndSource source = Host(terminal);
+        using KeyboardState keyboard = new();
+        try {
+            Pump(terminal.StartAsync());
+            TerminalSession session = Field<TerminalSession>(terminal, "_session");
+            WaitFor(() => ReadText(session).Contains("key-echo-ready"));
+            keyboard.SetModifiers(ModifierKeys.Control | ModifierKeys.Shift);
+            RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyDownEvent);
+            keyboard.SetControlAlt(true);
+            RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyDownEvent);
+            terminal.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice,
+                new InputComposition(terminal, "é", false, false)) {
+                RoutedEvent = TextCompositionManager.TextInputEvent
+            });
+            RaiseKey(terminal, source, Key.C, Keyboard.PreviewKeyUpEvent);
+            session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
+
+            WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
+            Assert.That(ReadKeyBytes(session), Is.EqualTo("c3a921"));
+            Assert.That(terminal.LastError, Is.Null);
+        }
+        finally { Pump(terminal.StopAsync()); }
+    }
     private sealed class KeyboardState : IDisposable {
         private readonly byte[] _saved = new byte[256];
 

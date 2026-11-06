@@ -38,7 +38,14 @@ static uint32_t rgb(GhosttyColorRgb color) {
 
 static int reserve(void** pointer, size_t* capacity, size_t needed) {
     if (needed <= *capacity) { return GHOSTTY_SUCCESS; }
-    size_t next = needed < 4096 ? 4096 : needed;
+    size_t next = *capacity < 4096 ? 4096 : *capacity;
+    while (next < needed) {
+        if (next > SIZE_MAX / 2) {
+            next = needed;
+            break;
+        }
+        next *= 2;
+    }
     void* replacement = realloc(*pointer, next);
     if (!replacement) { return GHOSTTY_OUT_OF_MEMORY; }
     *pointer = replacement;

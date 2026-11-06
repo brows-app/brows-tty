@@ -138,8 +138,6 @@ internal sealed class TerminalDrawing {
                     && row.Text[cell.TextOffset] < 127;
                 int end = x + 1;
                 if (ascii) {
-                    List<ushort> indices = new();
-                    List<double> advances = new();
                     end = x;
                     while (end < row.Cells.Length) {
                         NativeCell next = row.Cells[end];
@@ -147,9 +145,15 @@ internal sealed class TerminalDrawing {
                             && next.Flags == cell.Flags && next.Underline == cell.Underline
                             && row.Text[next.TextOffset] >= 32 && row.Text[next.TextOffset] < 127;
                         if (!matches) { break; }
-                        indices.Add(glyph.CharacterToGlyphMap[row.Text[next.TextOffset]]);
-                        advances.Add(CellWidth);
                         end++;
+                    }
+                    int runLength = end - x;
+                    ushort[] indices = new ushort[runLength];
+                    double[] advances = new double[runLength];
+                    for (int index = 0; index < runLength; index++) {
+                        NativeCell next = row.Cells[x + index];
+                        indices[index] = glyph.CharacterToGlyphMap[row.Text[next.TextOffset]];
+                        advances[index] = CellWidth;
                     }
                     GlyphRun run = new(glyph, 0, false, _fontSize, (float)_pixelsPerDip, indices,
                         new Point(x * CellWidth, baseline), advances, null, null, null, null, null, null);

@@ -35,6 +35,9 @@ public class Terminal : Control {
     private bool _cursorOn = true;
     private DateTime _lastBlink = DateTime.UtcNow;
     private Point? _selectionStart;
+    private Point? _selectionEnd;
+    private Point? _pendingSelectionEnd;
+    private bool _selectionPending;
     private uint _textKey;
     private Key _textPressKey;
     private Action? _pendingControlAltPress;
@@ -44,6 +47,8 @@ public class Terminal : Control {
     private readonly HashSet<Key> _forwardedKeys = new();
     private ushort _columns = 80;
     private ushort _lines = 24;
+    private uint _cellPixelWidth;
+    private uint _cellPixelHeight;
 
     private static readonly DependencyPropertyKey IsRunningPropertyKey = DependencyProperty.RegisterReadOnly(
         nameof(IsRunning), typeof(bool), typeof(Terminal), new PropertyMetadata(false));
@@ -146,6 +151,7 @@ public class Terminal : Control {
         if (ReferenceEquals(_faultedSession, session)) { return; }
         _faultedSession = session;
         _timer.Stop();
+        ClearSelectionDrag();
         SetValue(IsRunningPropertyKey, false);
         if (!ReferenceEquals(_session, session)) { return; }
         ReportFailure(exception);
@@ -176,7 +182,10 @@ public class Terminal : Control {
         }
         if (!ReferenceEquals(_session, session)) { return; }
         Exception? frameError = null;
-        try { RefreshFrame(false); }
+        try {
+            ApplyPendingSelection();
+            RefreshFrame(false);
+        }
         catch (Exception exception) { frameError = exception; }
         if (!ReferenceEquals(_session, session)) { return; }
         /* Collect errors before external callbacks can dispose this session. */
@@ -200,13 +209,18 @@ public class Terminal : Control {
         }
         ushort columns = (ushort)Math.Max(1, Math.Min(32767, Math.Floor(ActualWidth / _drawing.CellWidth)));
         ushort lines = (ushort)Math.Max(1, Math.Min(32767, Math.Floor(ActualHeight / _drawing.CellHeight)));
-        bool changed = columns != _columns || lines != _lines || _forceFrame;
-        if (!changed) { return; }
+        uint cellPixelWidth = (uint)Math.Max(1, Math.Round(_drawing.CellWidth * dpi.DpiScaleX));
+        uint cellPixelHeight = (uint)Math.Max(1, Math.Round(_drawing.CellHeight * dpi.DpiScaleY));
+        bool gridChanged = columns != _columns || lines != _lines;
+        bool cellPixelSizeChanged = cellPixelWidth != _cellPixelWidth || cellPixelHeight != _cellPixelHeight;
+        bool sizeUnchanged = !gridChanged && !cellPixelSizeChanged;
+        if (sizeUnchanged) { return; }
         _columns = columns;
         _lines = lines;
+        _cellPixelWidth = cellPixelWidth;
+        _cellPixelHeight = cellPixelHeight;
         if (_session is not null) {
-            _session.Resize(columns, lines, (uint)Math.Max(1, Math.Round(_drawing.CellWidth * dpi.DpiScaleX)),
-                (uint)Math.Max(1, Math.Round(_drawing.CellHeight * dpi.DpiScaleY)));
+            _session.Resize(columns, lines, cellPixelWidth, cellPixelHeight);
         }
         _forceFrame = true;
     }
@@ -232,7 +246,8 @@ public class Terminal : Control {
         if (!string.Equals(Title, snapshot.Title, StringComparison.Ordinal)) {
             SetValue(TitlePropertyKey, snapshot.Title);
         }
-        bool blink = DateTime.UtcNow - _lastBlink >= TimeSpan.FromMilliseconds(500);
+        bool cursorShouldBlink = IsRunning && _frame.CursorVisible != 0 && _frame.CursorBlink != 0;
+        bool blink = cursorShouldBlink && DateTime.UtcNow - _lastBlink >= TimeSpan.FromMilliseconds(500);
         if (blink) {
             _cursorOn = !_cursorOn;
             _lastBlink = DateTime.UtcNow;
@@ -251,7 +266,10 @@ public class Terminal : Control {
             HandleFailure(session, exception);
             return;
         }
-        try { RefreshFrame(false); }
+        try {
+            ApplyPendingSelection();
+            RefreshFrame(false);
+        }
         catch (Exception exception) {
             if (!ReferenceEquals(_session, session)) { return; }
             _timer.Stop();
@@ -278,6 +296,57 @@ public class Terminal : Control {
         if (session is null) { return; }
         try {
             action(session.Engine);
+            RefreshFrame();
+        }
+        catch (Exception exception) { HandleFailure(session, exception); }
+    }
+
+    private void ClearSelectionDrag() {
+        _selectionStart = null;
+        _selectionEnd = null;
+        _pendingSelectionEnd = null;
+        _selectionPending = false;
+    }
+
+    private void QueueSelection(Point endpoint) {
+        if (_selectionStart is null) { return; }
+        Point? latestEndpoint = _selectionPending ? _pendingSelectionEnd : _selectionEnd;
+        if (latestEndpoint == endpoint) { return; }
+        if (_selectionEnd == endpoint) {
+            _pendingSelectionEnd = null;
+            _selectionPending = false;
+            return;
+        }
+        _pendingSelectionEnd = endpoint;
+        _selectionPending = true;
+    }
+
+    private bool ApplyPendingSelection() {
+        if (!_selectionPending) { return false; }
+        Point? start = _selectionStart;
+        Point? endpoint = _pendingSelectionEnd;
+        _pendingSelectionEnd = null;
+        _selectionPending = false;
+        TerminalSession? session = _session;
+        if (session is null) { return false; }
+        if (start is null) { return false; }
+        if (endpoint is null) { return false; }
+        Point selectionStart = start.Value;
+        Point selectionEnd = endpoint.Value;
+        session.Engine.Select((ushort)selectionStart.X, (ushort)selectionStart.Y,
+            (ushort)selectionEnd.X, (ushort)selectionEnd.Y);
+        _selectionEnd = endpoint;
+        return true;
+    }
+
+    private void FlushPendingSelection() {
+        TerminalSession? session = _session;
+        if (session is null) { return; }
+        try {
+            bool selectionApplied = ApplyPendingSelection();
+            if (!selectionApplied) { return; }
+            bool sessionIsCurrent = ReferenceEquals(_session, session);
+            if (!sessionIsCurrent) { return; }
             RefreshFrame();
         }
         catch (Exception exception) { HandleFailure(session, exception); }
@@ -334,12 +403,6 @@ public class Terminal : Control {
         context.PushOpacity(hollow ? 0.8 : 0.55);
         context.DrawRectangle(hollow ? null : brush, hollow ? new Pen(brush, 1) : null, cursor);
         context.Pop();
-    }
-
-    /// <inheritdoc />
-    protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo) {
-        base.OnRenderSizeChanged(sizeInfo);
-        _forceFrame = true;
     }
 
     /// <inheritdoc />
@@ -457,6 +520,8 @@ public class Terminal : Control {
         base.OnMouseDown(args);
         Focus();
         if (_session is null) { return; }
+        FlushPendingSelection();
+        ClearSelectionDrag();
         if (ReportsMouse) {
             SendMouse(args, 0,
                 args.ChangedButton == MouseButton.Left ? 1u : args.ChangedButton == MouseButton.Right ? 2u : 3u);
@@ -465,6 +530,7 @@ public class Terminal : Control {
         else if (args.ChangedButton == MouseButton.Left) {
             _selectionStart = CellAt(args.GetPosition(this));
             Point point = _selectionStart.Value;
+            _selectionEnd = point;
             CaptureMouse();
             ApplyLocal(engine =>
                 engine.Select((ushort)point.X, (ushort)point.Y, (ushort)point.X, (ushort)point.Y));
@@ -480,18 +546,18 @@ public class Terminal : Control {
         bool selecting = _selectionStart.HasValue && args.LeftButton == MouseButtonState.Pressed;
         if (!selecting) { return; }
         Point point = CellAt(args.GetPosition(this));
-        Point start = _selectionStart!.Value;
-        ApplyLocal(engine => engine.Select((ushort)start.X, (ushort)start.Y, (ushort)point.X, (ushort)point.Y));
+        QueueSelection(point);
     }
 
     /// <inheritdoc />
     protected override void OnMouseUp(MouseButtonEventArgs args) {
         base.OnMouseUp(args);
+        FlushPendingSelection();
         if (ReportsMouse) {
             SendMouse(args, 1,
                 args.ChangedButton == MouseButton.Left ? 1u : args.ChangedButton == MouseButton.Right ? 2u : 3u);
         }
-        _selectionStart = null;
+        ClearSelectionDrag();
         ReleaseMouseCapture();
         args.Handled = true;
     }
@@ -502,7 +568,8 @@ public class Terminal : Control {
         if (_session is null) { return; }
         if (ReportsMouse) { SendMouse(args, 0, args.Delta > 0 ? 4u : 5u); }
         else {
-            _selectionStart = null;
+            FlushPendingSelection();
+            ClearSelectionDrag();
             ApplyLocal(engine => engine.Scroll(-Math.Sign(args.Delta) * 3));
         }
         args.Handled = true;
@@ -600,6 +667,9 @@ public class Terminal : Control {
         await _lifecycle.WaitAsync();
         try {
             if (IsRunning) { return; }
+            ClearSelectionDrag();
+            _cursorOn = true;
+            _lastBlink = DateTime.UtcNow;
             CancelControlAltPress();
             _controlAltComposition = null;
             TerminalSession? previous = _session;
@@ -612,6 +682,8 @@ public class Terminal : Control {
             ushort columns = _columns, lines = _lines;
             TerminalSession session = await Task.Run(() => new TerminalSession(command, directory, columns, lines));
             _session = session;
+            _cellPixelWidth = 0;
+            _cellPixelHeight = 0;
             _forceFrame = true;
             SetValue(LastErrorPropertyKey, null);
             SetValue(IsRunningPropertyKey, true);
@@ -640,7 +712,9 @@ public class Terminal : Control {
             _timer.Stop();
             CancelControlAltPress();
             _controlAltComposition = null;
-            _selectionStart = null;
+            ClearSelectionDrag();
+            _cursorOn = true;
+            _lastBlink = DateTime.UtcNow;
             _shortcutKeys.Clear();
             _forwardedKeys.Clear();
             ReleaseMouseCapture();
@@ -667,6 +741,8 @@ public class Terminal : Control {
     /// </summary>
     public void CopySelection() {
         VerifyAccess();
+        if (_session is null) { return; }
+        FlushPendingSelection();
         if (_session is null) { return; }
         try {
             string text = _session.Engine.SelectedText();

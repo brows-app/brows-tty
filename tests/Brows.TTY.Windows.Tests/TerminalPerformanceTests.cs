@@ -99,9 +99,10 @@ public sealed class TerminalPerformanceTests {
     }
 
     private static void BeginSelection(TerminalEmulator terminal, TerminalSession session) {
-        session.Engine.Select(0, 0, 0, 0);
+        session.Engine.BeginSelection(0, 0);
         SetField(terminal, "_selectionStart", new Point(0, 0));
         SetField(terminal, "_selectionEnd", new Point(0, 0));
+        Field<HashSet<MouseButton>>(terminal, "_localMouseButtons").Add(MouseButton.Left);
     }
 
     private static void RefreshFrame(TerminalEmulator terminal) {

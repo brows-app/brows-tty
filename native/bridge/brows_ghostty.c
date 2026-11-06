@@ -17,6 +17,9 @@ struct bt_terminal {
     GhosttyKeyEvent key;
     GhosttyMouseEncoder mouse_encoder;
     GhosttyMouseEvent mouse;
+    GhosttyTrackedGridRef selection_anchor;
+    GhosttyTerminalScreen selection_screen;
+    bool selection_screen_valid;
     GhosttyRenderStateColors colors;
     bt_output_fn output;
     void* context;
@@ -54,6 +57,7 @@ static int reserve(void** pointer, size_t* capacity, size_t needed) {
 }
 
 #define CHECK(call) do { int check_result = (call); if (check_result != 0) return check_result; } while (0)
+#define BT_SELECTION_CANCELED 1
 
 static void write_pty(GhosttyTerminal terminal, void* userdata, const uint8_t* data, size_t length) {
     (void)terminal;
@@ -70,12 +74,13 @@ static void render_hold(GhosttyTerminal terminal, void* userdata, bool held) {
     t->held = held;
 }
 
-uint32_t bt_abi_version(void) { return 2; }
+uint32_t bt_abi_version(void) { return 3; }
 void bt_lock(bt_terminal* t) { bt_mutex_lock(&t->gate); }
 void bt_unlock(bt_terminal* t) { bt_mutex_unlock(&t->gate); }
 
 void bt_free(bt_terminal* t) {
     if (!t) { return; }
+    if (t->selection_anchor) { ghostty_tracked_grid_ref_free(t->selection_anchor); }
     ghostty_mouse_event_free(t->mouse);
     ghostty_mouse_encoder_free(t->mouse_encoder);
     ghostty_key_event_free(t->key);
@@ -132,13 +137,27 @@ void bt_write(bt_terminal* t, const uint8_t* data, size_t length) {
 }
 
 int bt_resize(bt_terminal* t, uint16_t columns, uint16_t rows, uint32_t width, uint32_t height) {
+    if (columns == 0 || rows == 0 || width == 0 || height == 0) { return GHOSTTY_INVALID_VALUE; }
+    bool screen_width_fits = width <= UINT32_MAX / columns;
+    bool screen_height_fits = height <= UINT32_MAX / rows;
+    if (!screen_width_fits || !screen_height_fits) { return GHOSTTY_INVALID_VALUE; }
+    uint32_t screen_width = columns * width;
+    uint32_t screen_height = rows * height;
     CHECK(ghostty_terminal_resize(t->terminal, columns, rows, width, height));
     GhosttyMouseEncoderSize size = GHOSTTY_INIT_SIZED(GhosttyMouseEncoderSize);
-    size.screen_width = columns * width;
-    size.screen_height = rows * height;
+    size.screen_width = screen_width;
+    size.screen_height = screen_height;
     size.cell_width = width;
     size.cell_height = height;
     return ghostty_mouse_encoder_setopt(t->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_SIZE, &size);
+}
+
+int bt_complete_output(bt_terminal* t) {
+    if (!t->held) { return 0; }
+    GhosttyTerminalModeConfig mode = { .mode = GHOSTTY_MODE_SYNC_OUTPUT, .value = false };
+    int result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_MODE, &mode);
+    if (result == 0) { t->held = false; }
+    return result;
 }
 
 int bt_begin_frame(bt_terminal* t, bt_frame* frame, int force) {
@@ -253,14 +272,15 @@ int bt_end_frame(bt_terminal* t) { return ghostty_render_state_clean(t->render);
 
 
 int bt_key(bt_terminal* t, uint32_t key, uint16_t modifiers, uint32_t action,
-    const uint8_t* text, size_t length) {
+           uint32_t unshifted_codepoint, uint16_t consumed_modifiers,
+           const uint8_t* text, size_t length) {
     ghostty_key_encoder_setopt_from_terminal(t->keys, t->terminal);
     CHECK(ghostty_key_event_set_action(t->key, (GhosttyKeyAction)action));
     CHECK(ghostty_key_event_set_key(t->key, (GhosttyKey)key));
     ghostty_key_event_set_mods(t->key, modifiers);
-    ghostty_key_event_set_consumed_mods(t->key, length ? GHOSTTY_MODS_SHIFT : 0);
+    ghostty_key_event_set_consumed_mods(t->key, consumed_modifiers);
     ghostty_key_event_set_utf8(t->key, (const char*)text, length);
-    ghostty_key_event_set_unshifted_codepoint(t->key, key >= GHOSTTY_KEY_A && key <= GHOSTTY_KEY_Z ? key - GHOSTTY_KEY_A + 'a' : 0);
+    ghostty_key_event_set_unshifted_codepoint(t->key, unshifted_codepoint);
     CHECK(reserve((void**)&t->encoded, &t->encoded_capacity, length + 128));
     size_t written = 0;
     int result = ghostty_key_encoder_encode(t->keys, t->key, (char*)t->encoded, t->encoded_capacity, &written);
@@ -305,7 +325,7 @@ void bt_scroll(bt_terminal* t, int32_t lines, int bottom) {
 }
 
 int bt_mouse(bt_terminal* t, uint32_t action, uint32_t button, uint16_t modifiers,
-    float x, float y, int any_pressed) {
+             float x, float y, int any_pressed) {
     ghostty_mouse_encoder_setopt_from_terminal(t->mouse_encoder, t->terminal);
     bool pressed = any_pressed != 0;
     CHECK(ghostty_mouse_encoder_setopt(t->mouse_encoder, GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED, &pressed));
@@ -329,13 +349,113 @@ int bt_title(bt_terminal* t, const uint8_t** text, size_t* length) {
 }
 
 int bt_select(bt_terminal* t, uint16_t sx, uint16_t sy, uint16_t ex, uint16_t ey, int clear) {
-    if (clear) { return ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL); }
+    if (clear) {
+        bt_selection_cancel(t);
+        return ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+    }
     GhosttySelection selection = {0};
     GhosttyPoint start = { .tag = GHOSTTY_POINT_TAG_VIEWPORT, .value = { .coordinate = { .x = sx, .y = sy } } };
     GhosttyPoint end = { .tag = GHOSTTY_POINT_TAG_VIEWPORT, .value = { .coordinate = { .x = ex, .y = ey } } };
     CHECK(ghostty_terminal_grid_ref(t->terminal, start, &selection.start));
     CHECK(ghostty_terminal_grid_ref(t->terminal, end, &selection.end));
     return ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+}
+
+void bt_selection_cancel(bt_terminal* t) {
+    if (!t) { return; }
+    if (t->selection_anchor) {
+        ghostty_tracked_grid_ref_free(t->selection_anchor);
+        t->selection_anchor = NULL;
+    }
+    t->selection_screen_valid = false;
+}
+
+int bt_selection_begin(bt_terminal* t, uint16_t x, uint16_t y) {
+    bt_selection_cancel(t);
+    GhosttyPoint point = {
+        .tag = GHOSTTY_POINT_TAG_VIEWPORT,
+        .value = { .coordinate = { .x = x, .y = y } }
+    };
+    int result = ghostty_terminal_grid_ref_track(t->terminal, point, &t->selection_anchor);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        return result;
+    }
+    result = ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, &t->selection_screen);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        return result;
+    }
+    t->selection_screen_valid = true;
+
+    GhosttyGridRef anchor = {0};
+    result = ghostty_tracked_grid_ref_snapshot(t->selection_anchor, &anchor);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        return result;
+    }
+    GhosttySelection selection = { .start = anchor, .end = anchor };
+    result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+    if (result != 0) { bt_selection_cancel(t); }
+    return result;
+}
+
+int bt_selection_update(bt_terminal* t, uint16_t x, uint16_t y) {
+    GhosttyTerminalScreen active_screen;
+    int result = ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_ACTIVE_SCREEN, &active_screen);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+        return result;
+    }
+    bool active_screen_changed = !t->selection_screen_valid || active_screen != t->selection_screen;
+    bool anchor_is_unavailable = !t->selection_anchor || !ghostty_tracked_grid_ref_has_value(t->selection_anchor);
+    if (active_screen_changed || anchor_is_unavailable) {
+        bt_selection_cancel(t);
+        result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+        if (result != 0) {
+            return result;
+        }
+        return BT_SELECTION_CANCELED;
+    }
+
+    GhosttySelection selection = {0};
+    result = ghostty_tracked_grid_ref_snapshot(t->selection_anchor, &selection.start);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        int clear_result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+        if (clear_result != 0) {
+            return clear_result;
+        }
+        return result == GHOSTTY_NO_VALUE ? BT_SELECTION_CANCELED : result;
+    }
+    GhosttyPoint endpoint = {
+        .tag = GHOSTTY_POINT_TAG_VIEWPORT,
+        .value = { .coordinate = { .x = x, .y = y } }
+    };
+    result = ghostty_terminal_grid_ref(t->terminal, endpoint, &selection.end);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        int clear_result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+        if (clear_result != 0) {
+            return clear_result;
+        }
+        return result == GHOSTTY_INVALID_VALUE || result == GHOSTTY_NO_VALUE
+            ? BT_SELECTION_CANCELED : result;
+    }
+    result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, &selection);
+    if (result != 0) {
+        bt_selection_cancel(t);
+        if (result == GHOSTTY_INVALID_VALUE || result == GHOSTTY_NO_VALUE) {
+            int clear_result = ghostty_terminal_set(t->terminal, GHOSTTY_TERMINAL_OPT_SELECTION, NULL);
+            if (clear_result != 0) {
+                return clear_result;
+            }
+            return BT_SELECTION_CANCELED;
+        }
+        return result;
+    }
+    return result;
 }
 
 int bt_selection_text(bt_terminal* t, const uint8_t** text, size_t* length) {

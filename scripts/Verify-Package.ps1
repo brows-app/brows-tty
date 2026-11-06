@@ -1,6 +1,7 @@
 param([string] $Version = '0.1.0-alpha')
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $root = Split-Path $PSScriptRoot -Parent
 $packageFolder = Join-Path $root 'out/package/release'
 foreach ($packageId in @('Brows.TTY', 'Brows.TTY.Win32', 'Brows.TTY.Windows')) {
@@ -59,7 +60,9 @@ Copy-Item (Join-Path $PSScriptRoot 'PackageConsumer/*') $consumer
 $project = Join-Path $consumer 'PackageConsumer.csproj'
 $configPath = Join-Path $consumer 'NuGet.Config'
 $config = [xml] '<configuration><packageSources><clear/><add key="local" value=""/><add key="nuget" value="https://api.nuget.org/v3/index.json"/></packageSources><packageSourceMapping><clear/><packageSource key="local"><package pattern="Brows.TTY*"/></packageSource><packageSource key="nuget"><package pattern="*"/></packageSource></packageSourceMapping></configuration>'
-$config.configuration.packageSources.add[0].value = $packageFolder
+$localSource = $config.SelectSingleNode('/configuration/packageSources/add[@key="local"]')
+if ($null -eq $localSource) { throw 'The local package source is missing from NuGet.Config.' }
+$localSource.SetAttribute('value', [string] $packageFolder)
 $config.Save($configPath)
 & dotnet restore $project --packages (Join-Path $consumer 'packages') --configfile $configPath `
   "-p:TerminalPackageVersion=$Version"

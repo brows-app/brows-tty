@@ -173,7 +173,7 @@ void bt_session_free(bt_session* session) {
 }
 
 int bt_session_create(const wchar_t* command, const wchar_t* directory,
-    uint16_t columns, uint16_t rows, bt_session** result) {
+                      uint16_t columns, uint16_t rows, bt_session** result) {
     if (!result) { return E_INVALIDARG; }
     *result = NULL;
     if (!command || !command[0] || !columns || !rows || columns > 32767 || rows > 32767) {

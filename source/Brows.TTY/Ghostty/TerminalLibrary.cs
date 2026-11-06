@@ -19,7 +19,7 @@ internal static class TerminalLibrary {
 
     internal static void EnsureLoaded() {
         GC.KeepAlive(Module);
-        if (NativeMethods.bt_abi_version() != 2) {
+        if (NativeMethods.bt_abi_version() != 3) {
             throw new NotSupportedException("The native terminal ABI is incompatible with this managed library.");
         }
     }

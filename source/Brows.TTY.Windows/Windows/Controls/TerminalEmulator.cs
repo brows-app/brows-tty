@@ -3,6 +3,7 @@ using Brows.Win32;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -31,6 +32,7 @@ public class TerminalEmulator : Control {
     private TerminalSession? _faultedSession;
     private DrawingGroup?[] _rows = Array.Empty<DrawingGroup>();
     private TerminalRow?[] _rowSnapshots = Array.Empty<TerminalRow>();
+    private bool[] _blinkingRows = Array.Empty<bool>();
     private NativeFrame _frame;
     private bool _forceFrame = true;
     private bool _fontDirty = true;
@@ -38,18 +40,36 @@ public class TerminalEmulator : Control {
     private bool _settingFontZoomSize;
     private bool _cursorOn = true;
     private DateTime _lastBlink = DateTime.UtcNow;
+    private bool _textBlinkOn = true;
+    private DateTime _lastTextBlink = DateTime.UtcNow;
+    private int _blinkingRowCount;
     private Point? _selectionStart;
     private Point? _selectionEnd;
     private Point? _pendingSelectionEnd;
     private bool _selectionPending;
     private bool _copyMouseUpPending;
+    private readonly Dictionary<MouseButton, uint> _applicationMouseButtons = new();
+    private readonly List<MouseButton> _applicationMouseButtonOrder = new();
+    private readonly HashSet<MouseButton> _localMouseButtons = new();
+    private Point _lastMousePosition;
+    private bool _hasLastMousePosition;
+    private long _pendingWheelDelta;
+    private bool? _wheelReportsToApplication;
     private uint _textKey;
+    private uint _textAction = 1;
+    private uint _textUnshiftedCodepoint;
+    private string? _textExpectedPhysicalText;
     private Key _textPressKey;
+    private bool _textPressPending;
+    private ushort _textModifiers;
+    private ushort _textConsumedModifiers;
     private Action? _pendingControlAltPress;
     private DispatcherOperation? _pendingControlAltOperation;
     private TextComposition? _controlAltComposition;
+    private TextComposition? _committedComposition;
     private readonly HashSet<Key> _shortcutKeys = new();
     private readonly HashSet<Key> _forwardedKeys = new();
+    private readonly Dictionary<Key, uint> _forwardedKeyCodepoints = new();
     private ushort _columns = 80;
     private ushort _lines = 24;
     private uint _cellPixelWidth;
@@ -234,7 +254,7 @@ public class TerminalEmulator : Control {
         press?.Invoke();
     }
 
-    private void DeferControlAltPress(Key key, uint action) {
+    private void DeferControlAltPress(Key key, uint action, uint unshiftedCodepoint) {
         TerminalSession? session = _session;
         if (session is null) {
             return;
@@ -246,8 +266,9 @@ public class TerminalEmulator : Control {
                 return;
             }
             Send(engine => {
-                session.Key(virtualKey, modifiers, action, "");
+                session.Key(virtualKey, modifiers, action, unshiftedCodepoint, 0, "");
                 _forwardedKeys.Add(key);
+                _forwardedKeyCodepoints[key] = unshiftedCodepoint;
             }, true);
         };
         /*
@@ -259,6 +280,12 @@ public class TerminalEmulator : Control {
     }
 
     private void OnTextInputStart(object sender, TextCompositionEventArgs args) {
+        bool hasPreeditText = !string.IsNullOrEmpty(args.TextComposition.CompositionText);
+        bool isImeComposition = args.TextComposition is FrameworkTextComposition;
+        bool compositionIsActive = hasPreeditText || isImeComposition;
+        if (compositionIsActive) {
+            _committedComposition = args.TextComposition;
+        }
         if (_pendingControlAltPress is null) {
             return;
         }
@@ -294,7 +321,7 @@ public class TerminalEmulator : Control {
         }
         _faultedSession = session;
         _timer.Stop();
-        ClearSelectionDrag();
+        CancelMouseInteraction(false);
         SetValue(IsRunningPropertyKey, false);
         if (!ReferenceEquals(_session, session)) {
             return;
@@ -348,6 +375,8 @@ public class TerminalEmulator : Control {
         }
         Exception? frameError = null;
         try {
+            session.Engine.CompleteOutput();
+            RestoreBlinkingText();
             ApplyPendingSelection();
             RefreshFrame(false);
         }
@@ -367,6 +396,12 @@ public class TerminalEmulator : Control {
         catch (Exception exception) {
             transportError = exception;
         }
+        CancelMouseInteraction(false);
+        bool sessionIsCurrentAfterMouseCancellation = ReferenceEquals(_session, session);
+        if (!sessionIsCurrentAfterMouseCancellation) {
+            return;
+        }
+        _copyMouseUpPending = false;
         _timer.Stop();
         SetValue(IsRunningPropertyKey, false);
         if (!ReferenceEquals(_session, session)) {
@@ -403,6 +438,11 @@ public class TerminalEmulator : Control {
         if (sizeUnchanged) {
             return;
         }
+        if (gridChanged) {
+            CancelLocalSelectionGesture();
+            _localMouseButtons.Clear();
+            ReleaseMouseCaptureIfIdle();
+        }
         _columns = columns;
         _lines = lines;
         _cellPixelWidth = cellPixelWidth;
@@ -411,6 +451,37 @@ public class TerminalEmulator : Control {
             _session.Resize(columns, lines, cellPixelWidth, cellPixelHeight);
         }
         _forceFrame = true;
+    }
+
+    private static bool RowContainsBlinkingText(TerminalRow row) {
+        foreach (NativeCell cell in row.Cells) {
+            if ((cell.Flags & 8) != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void RedrawBlinkingRows() {
+        for (int index = 0; index < _blinkingRows.Length; index++) {
+            if (!_blinkingRows[index]) {
+                continue;
+            }
+            TerminalRow? row = _rowSnapshots[index];
+            if (row is not null) {
+                _rows[index] = _drawing.DrawRow(row, _textBlinkOn);
+            }
+        }
+    }
+
+    private void RestoreBlinkingText() {
+        _lastTextBlink = DateTime.UtcNow;
+        if (_textBlinkOn) {
+            return;
+        }
+        _textBlinkOn = true;
+        RedrawBlinkingRows();
+        InvalidateVisual();
     }
 
     private void RefreshFrame(bool checkTransport = true) {
@@ -426,10 +497,18 @@ public class TerminalEmulator : Control {
         if (_rows.Length != snapshot.Info.Rows) {
             _rows = new DrawingGroup[snapshot.Info.Rows];
             _rowSnapshots = new TerminalRow[snapshot.Info.Rows];
+            _blinkingRows = new bool[snapshot.Info.Rows];
+            _blinkingRowCount = 0;
         }
         foreach (TerminalRow row in snapshot.ChangedRows) {
             _rowSnapshots[row.Index] = row;
-            _rows[row.Index] = _drawing.DrawRow(row);
+            bool rowWasBlinking = _blinkingRows[row.Index];
+            bool rowIsBlinking = RowContainsBlinkingText(row);
+            if (rowWasBlinking != rowIsBlinking) {
+                _blinkingRowCount += rowIsBlinking ? 1 : -1;
+                _blinkingRows[row.Index] = rowIsBlinking;
+            }
+            _rows[row.Index] = _drawing.DrawRow(row, _textBlinkOn);
         }
         bool cursorChanged = _frame.CursorX != snapshot.Info.CursorX || _frame.CursorY != snapshot.Info.CursorY
             || _frame.CursorVisible != snapshot.Info.CursorVisible || _frame.CursorStyle != snapshot.Info.CursorStyle
@@ -438,13 +517,21 @@ public class TerminalEmulator : Control {
         if (!string.Equals(Title, snapshot.Title, StringComparison.Ordinal)) {
             SetValue(TitlePropertyKey, snapshot.Title);
         }
+        DateTime now = DateTime.UtcNow;
         bool cursorShouldBlink = IsRunning && _frame.CursorVisible != 0 && _frame.CursorBlink != 0;
-        bool blink = cursorShouldBlink && DateTime.UtcNow - _lastBlink >= TimeSpan.FromMilliseconds(500);
-        if (blink) {
+        bool cursorBlink = cursorShouldBlink && now - _lastBlink >= TimeSpan.FromMilliseconds(500);
+        if (cursorBlink) {
             _cursorOn = !_cursorOn;
-            _lastBlink = DateTime.UtcNow;
+            _lastBlink = now;
         }
-        bool redraw = snapshot.ChangedRows.Count != 0 || cursorChanged || blink;
+        bool textBlink = IsRunning && _blinkingRowCount != 0
+            && now - _lastTextBlink >= TimeSpan.FromMilliseconds(500);
+        if (textBlink) {
+            _textBlinkOn = !_textBlinkOn;
+            _lastTextBlink = now;
+            RedrawBlinkingRows();
+        }
+        bool redraw = snapshot.ChangedRows.Count != 0 || cursorChanged || cursorBlink || textBlink;
         if (redraw) {
             InvalidateVisual();
         }
@@ -467,7 +554,23 @@ public class TerminalEmulator : Control {
             return;
         }
         try {
+            ConfigureSize();
+        }
+        catch (Exception exception) {
+            if (!ReferenceEquals(_session, session)) {
+                return;
+            }
+            _timer.Stop();
+            HandleFailure(session, exception);
+            return;
+        }
+        try {
             ApplyPendingSelection();
+        }
+        catch (Exception exception) {
+            HandleSelectionFailure(session, exception);
+        }
+        try {
             RefreshFrame(false);
         }
         catch (Exception exception) {
@@ -516,6 +619,8 @@ public class TerminalEmulator : Control {
     private void RegisterShortcutKey(Key key) {
         _shortcutKeys.Add(key);
         _textPressKey = key;
+        _textPressPending = false;
+        _textExpectedPhysicalText = null;
     }
 
     private bool TryHandleClipboardShortcut(Key key, ModifierKeys modifiers) {
@@ -618,21 +723,48 @@ public class TerminalEmulator : Control {
             }
             Clipboard.SetText(text);
             session.Engine.Select(0, 0, 0, 0, true);
-            ClearSelectionDrag();
-            ReleaseMouseCapture();
+            CancelLocalSelectionGesture();
             RefreshFrame();
         }
         catch (Exception exception) {
-            HandleFailure(session, exception);
+            HandleSelectionFailure(session, exception);
+            return false;
         }
         return true;
     }
 
     private void ClearSelectionDrag() {
+        TerminalSession? session = _session;
         _selectionStart = null;
         _selectionEnd = null;
         _pendingSelectionEnd = null;
         _selectionPending = false;
+        if (session is null) {
+            return;
+        }
+        try {
+            session.Engine.CancelSelection();
+        }
+        catch (ObjectDisposedException) {
+        }
+    }
+
+    private void CancelLocalSelectionGesture() {
+        ClearSelectionDrag();
+        _localMouseButtons.Remove(MouseButton.Left);
+        ReleaseMouseCaptureIfIdle();
+    }
+
+    private void HandleSelectionFailure(TerminalSession session, Exception exception) {
+        if (!ReferenceEquals(_session, session)) {
+            return;
+        }
+        CancelLocalSelectionGesture();
+        if (session.Faulted) {
+            HandleFailure(session, exception);
+            return;
+        }
+        ReportFailure(exception);
     }
 
     private void QueueSelection(Point endpoint) {
@@ -670,10 +802,12 @@ public class TerminalEmulator : Control {
         if (endpoint is null) {
             return false;
         }
-        Point selectionStart = start.Value;
         Point selectionEnd = endpoint.Value;
-        session.Engine.Select((ushort)selectionStart.X, (ushort)selectionStart.Y,
-            (ushort)selectionEnd.X, (ushort)selectionEnd.Y);
+        bool selectionWasApplied = session.Engine.UpdateSelection((ushort)selectionEnd.X, (ushort)selectionEnd.Y);
+        if (!selectionWasApplied) {
+            CancelLocalSelectionGesture();
+            return true;
+        }
         _selectionEnd = endpoint;
         return true;
     }
@@ -695,7 +829,7 @@ public class TerminalEmulator : Control {
             RefreshFrame();
         }
         catch (Exception exception) {
-            HandleFailure(session, exception);
+            HandleSelectionFailure(session, exception);
         }
     }
 
@@ -704,16 +838,375 @@ public class TerminalEmulator : Control {
             Math.Max(0, Math.Min(_lines - 1, Math.Floor(point.Y / _drawing.CellHeight))));
     }
 
-    private void SendMouse(MouseEventArgs args, uint action, uint button) {
-        Point point = args.GetPosition(this);
-        DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        bool pressed = args.LeftButton == MouseButtonState.Pressed || args.RightButton == MouseButtonState.Pressed
-            || args.MiddleButton == MouseButtonState.Pressed;
-        Send(engine => engine.Mouse(action, button, Modifiers(), (float)(point.X * dpi.DpiScaleX),
-            (float)(point.Y * dpi.DpiScaleY), pressed));
+    private static uint MouseButtonCode(MouseButton button) {
+        switch (button) {
+            case MouseButton.Left:
+                return 1;
+            case MouseButton.Right:
+                return 2;
+            case MouseButton.Middle:
+                return 3;
+            case MouseButton.XButton1:
+                return 8;
+            case MouseButton.XButton2:
+                return 9;
+            default:
+                return 0;
+        }
     }
 
-    private bool ReportsMouse => _frame.MouseTracking != 0 && (Keyboard.Modifiers & ModifierKeys.Shift) == 0;
+    private uint CurrentApplicationMouseButton() {
+        for (int index = _applicationMouseButtonOrder.Count - 1; index >= 0; index--) {
+            MouseButton button = _applicationMouseButtonOrder[index];
+            bool buttonIsStillPressed = _applicationMouseButtons.TryGetValue(button, out uint code);
+            if (buttonIsStillPressed) {
+                return code;
+            }
+        }
+        return 0;
+    }
+
+    private void RememberMousePosition(Point point) {
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        _lastMousePosition = new Point(point.X * dpi.DpiScaleX, point.Y * dpi.DpiScaleY);
+        _hasLastMousePosition = true;
+    }
+
+    private void SendMouse(TerminalSession session, Point point, uint action, uint button, bool anyButtonPressed) {
+        RememberMousePosition(point);
+        SendMouse(session, action, button, anyButtonPressed);
+    }
+
+    private void SendMouse(TerminalSession session, uint action, uint button, bool anyButtonPressed) {
+        bool sessionIsCurrentAndRunning = ReferenceEquals(_session, session) && IsRunning;
+        if (!sessionIsCurrentAndRunning) {
+            return;
+        }
+        if (!_hasLastMousePosition) {
+            RememberMousePosition(new Point(0, 0));
+        }
+        try {
+            session.Engine.Mouse(action, button, Modifiers(), (float)_lastMousePosition.X,
+                (float)_lastMousePosition.Y, anyButtonPressed);
+            session.CheckError();
+        }
+        catch (Exception exception) {
+            HandleFailure(session, exception);
+        }
+    }
+
+    private long AccumulateWheelDelta(int delta, bool reportsToApplication) {
+        bool wheelRouteChanged = _wheelReportsToApplication != reportsToApplication;
+        if (wheelRouteChanged) {
+            _pendingWheelDelta = 0;
+            _wheelReportsToApplication = reportsToApplication;
+        }
+        _pendingWheelDelta += delta;
+        long detents = _pendingWheelDelta / 120;
+        _pendingWheelDelta -= detents * 120;
+        return detents;
+    }
+
+    private static int WheelScrollRows(long detents, int configuredRows, int viewportRows) {
+        long rowsPerDetent = configuredRows == -1 ? viewportRows : Math.Max(0, configuredRows);
+        long rowDelta = -detents * rowsPerDetent;
+        if (rowDelta > int.MaxValue) {
+            return int.MaxValue;
+        }
+        if (rowDelta < int.MinValue) {
+            return int.MinValue;
+        }
+        return (int)rowDelta;
+    }
+
+    private void ReleaseMouseCaptureIfIdle() {
+        bool noPressedButtons = _applicationMouseButtons.Count == 0 && _localMouseButtons.Count == 0;
+        bool idleControlOwnsMouseCapture = noPressedButtons && IsMouseCaptured;
+        if (idleControlOwnsMouseCapture) {
+            ReleaseMouseCapture();
+        }
+    }
+
+    private void CancelMouseInteraction(bool sendApplicationReleases = true) {
+        TerminalSession? session = _session;
+        bool canSendReleases = sendApplicationReleases && session is not null && IsRunning;
+        MouseButton[] applicationButtons = _applicationMouseButtonOrder.ToArray();
+        _applicationMouseButtons.Clear();
+        _applicationMouseButtonOrder.Clear();
+        _localMouseButtons.Clear();
+        _pendingWheelDelta = 0;
+        _wheelReportsToApplication = null;
+        ClearSelectionDrag();
+        if (canSendReleases) {
+            for (int index = applicationButtons.Length - 1; index >= 0; index--) {
+                bool sessionIsCurrentAndRunning = ReferenceEquals(_session, session) && IsRunning;
+                if (!sessionIsCurrentAndRunning) {
+                    return;
+                }
+                uint button = MouseButtonCode(applicationButtons[index]);
+                bool anotherButtonRemainsPressed = index > 0;
+                SendMouse(session!, 1, button, anotherButtonRemainsPressed);
+                bool sessionChangedWhileReleasing = !ReferenceEquals(_session, session);
+                if (sessionChangedWhileReleasing) {
+                    return;
+                }
+            }
+        }
+        bool sessionIsUnchanged = session is null || ReferenceEquals(_session, session);
+        bool unchangedSessionOwnsMouseCapture = sessionIsUnchanged && IsMouseCaptured;
+        if (unchangedSessionOwnsMouseCapture) {
+            ReleaseMouseCapture();
+        }
+    }
+
+    private void HandleMouseCaptureLost(Point point) {
+        RememberMousePosition(point);
+        CancelMouseInteraction();
+    }
+
+    private void HandleMouseDown(MouseButtonEventArgs args, Point position, bool captureMouse) {
+        TerminalSession? session = _session;
+        if (session is null) {
+            return;
+        }
+        RememberMousePosition(position);
+        bool exitedApplicationGestureIsStale = !IsRunning && _applicationMouseButtons.Count != 0;
+        if (exitedApplicationGestureIsStale) {
+            _applicationMouseButtons.Clear();
+            _applicationMouseButtonOrder.Clear();
+            ReleaseMouseCaptureIfIdle();
+        }
+        if (args.ChangedButton == MouseButton.Right) {
+            _copyMouseUpPending = false;
+            bool copyWasHandled = TryCopySelection();
+            if (copyWasHandled) {
+                bool sessionIsCurrent = ReferenceEquals(_session, session);
+                if (sessionIsCurrent) {
+                    _copyMouseUpPending = true;
+                }
+                args.Handled = true;
+                return;
+            }
+        }
+        bool sessionIsCurrentAfterCopy = ReferenceEquals(_session, session);
+        if (!sessionIsCurrentAfterCopy) {
+            args.Handled = true;
+            return;
+        }
+        bool noMouseGestureIsActive = _applicationMouseButtons.Count == 0 && _localMouseButtons.Count == 0;
+        if (noMouseGestureIsActive) {
+            FlushPendingSelection();
+            bool sessionIsCurrent = ReferenceEquals(_session, session);
+            if (!sessionIsCurrent) {
+                args.Handled = true;
+                return;
+            }
+            ClearSelectionDrag();
+        }
+        uint button = MouseButtonCode(args.ChangedButton);
+        bool unsupportedOrAlreadyPressedButton = button == 0
+            || _applicationMouseButtons.ContainsKey(args.ChangedButton)
+            || _localMouseButtons.Contains(args.ChangedButton);
+        if (unsupportedOrAlreadyPressedButton) {
+            args.Handled = true;
+            return;
+        }
+        bool reportsToApplication = ReportsMouse;
+        if (reportsToApplication) {
+            _applicationMouseButtons.Add(args.ChangedButton, button);
+            _applicationMouseButtonOrder.Remove(args.ChangedButton);
+            _applicationMouseButtonOrder.Add(args.ChangedButton);
+            SendMouse(session, position, 0, button, true);
+            bool sessionChangedOrStopped = !ReferenceEquals(_session, session) || !IsRunning;
+            if (sessionChangedOrStopped) {
+                args.Handled = true;
+                return;
+            }
+        }
+        else {
+            _localMouseButtons.Add(args.ChangedButton);
+            if (args.ChangedButton == MouseButton.Left) {
+                Point cell = CellAt(position);
+                _selectionStart = cell;
+                _selectionEnd = cell;
+                try {
+                    session.Engine.BeginSelection((ushort)cell.X, (ushort)cell.Y);
+                    RefreshFrame();
+                }
+                catch (Exception exception) {
+                    CancelLocalSelectionGesture();
+                    HandleSelectionFailure(session, exception);
+                }
+            }
+        }
+        bool sessionChanged = !ReferenceEquals(_session, session);
+        if (sessionChanged) {
+            args.Handled = true;
+            return;
+        }
+        bool mouseGestureIsActive = _applicationMouseButtons.Count != 0 || _localMouseButtons.Count != 0;
+        bool captureMouseForGesture = captureMouse && mouseGestureIsActive;
+        if (captureMouseForGesture) {
+            bool captureSucceeded = CaptureMouse();
+            if (!captureSucceeded) {
+                CancelMouseInteraction();
+            }
+        }
+        args.Handled = true;
+    }
+
+    private void HandleMouseMove(Point position) {
+        TerminalSession? session = _session;
+        if (session is null) {
+            return;
+        }
+        RememberMousePosition(position);
+        bool exitedApplicationGestureIsStale = !IsRunning && _applicationMouseButtons.Count != 0;
+        if (exitedApplicationGestureIsStale) {
+            _applicationMouseButtons.Clear();
+            _applicationMouseButtonOrder.Clear();
+            ReleaseMouseCaptureIfIdle();
+        }
+        if (_applicationMouseButtons.Count != 0) {
+            uint button = CurrentApplicationMouseButton();
+            bool anyButtonPressed = _applicationMouseButtons.Count != 0 || _localMouseButtons.Count != 0;
+            SendMouse(session, position, 2, button, anyButtonPressed);
+            bool sessionIsCurrent = ReferenceEquals(_session, session);
+            if (!sessionIsCurrent) {
+                return;
+            }
+        }
+        bool localSelectionIsActive = _selectionStart.HasValue && _localMouseButtons.Contains(MouseButton.Left);
+        if (localSelectionIsActive) {
+            Point point = CellAt(position);
+            QueueSelection(point);
+        }
+        bool noMouseGestureIsActive = _applicationMouseButtons.Count == 0 && _localMouseButtons.Count == 0;
+        bool reportsUnownedHoverMotion = noMouseGestureIsActive && ReportsMouse;
+        if (reportsUnownedHoverMotion) {
+            SendMouse(session, position, 2, 0, false);
+        }
+    }
+
+    private void HandleMouseUp(MouseButtonEventArgs args, Point position) {
+        TerminalSession? session = _session;
+        bool copiedWithRightButton = args.ChangedButton == MouseButton.Right && _copyMouseUpPending;
+        if (copiedWithRightButton) {
+            _copyMouseUpPending = false;
+            args.Handled = true;
+            return;
+        }
+        RememberMousePosition(position);
+        uint applicationButton = 0;
+        bool applicationButtonWasPressed = _applicationMouseButtons.TryGetValue(args.ChangedButton,
+            out applicationButton);
+        if (applicationButtonWasPressed) {
+            _applicationMouseButtons.Remove(args.ChangedButton);
+            _applicationMouseButtonOrder.Remove(args.ChangedButton);
+        }
+        bool localButtonWasPressed = _localMouseButtons.Remove(args.ChangedButton);
+        bool localLeftButtonWasReleased = localButtonWasPressed && args.ChangedButton == MouseButton.Left;
+        if (localLeftButtonWasReleased) {
+            FlushPendingSelection();
+            bool sessionIsCurrent = ReferenceEquals(_session, session);
+            if (!sessionIsCurrent) {
+                args.Handled = true;
+                return;
+            }
+            CancelLocalSelectionGesture();
+        }
+        if (applicationButtonWasPressed) {
+            bool anotherButtonRemainsPressed = _applicationMouseButtons.Count != 0 || _localMouseButtons.Count != 0;
+            if (session is not null) {
+                SendMouse(session, position, 1, applicationButton, anotherButtonRemainsPressed);
+            }
+        }
+        bool sessionChanged = !ReferenceEquals(_session, session);
+        if (sessionChanged) {
+            args.Handled = true;
+            return;
+        }
+        ReleaseMouseCaptureIfIdle();
+        args.Handled = true;
+    }
+
+    private void HandleMouseWheel(MouseWheelEventArgs args, Point position) {
+        TerminalSession? session = _session;
+        if (session is null) {
+            return;
+        }
+        RememberMousePosition(position);
+        bool reportsToApplication = ReportsMouse;
+        long detents = AccumulateWheelDelta(args.Delta, reportsToApplication);
+        if (reportsToApplication) {
+            uint button = detents > 0 ? 4u : 5u;
+            long wheelEvents = detents < 0 ? -detents : detents;
+            bool anyButtonPressed = _applicationMouseButtons.Count != 0 || _localMouseButtons.Count != 0;
+            for (long index = 0; index < wheelEvents; index++) {
+                bool sessionIsCurrentAndRunning = ReferenceEquals(_session, session) && IsRunning;
+                if (!sessionIsCurrentAndRunning) {
+                    break;
+                }
+                SendMouse(session, position, 0, button, anyButtonPressed);
+            }
+        }
+        else if (detents != 0) {
+            int rows = WheelScrollRows(detents, SystemParameters.WheelScrollLines, _lines);
+            if (rows != 0) {
+                FlushPendingSelection();
+                bool sessionIsCurrent = ReferenceEquals(_session, session);
+                if (!sessionIsCurrent) {
+                    args.Handled = true;
+                    return;
+                }
+                CancelLocalSelectionGesture();
+                bool sessionIsCurrentAfterSelectionCancellation = ReferenceEquals(_session, session);
+                if (!sessionIsCurrentAfterSelectionCancellation) {
+                    args.Handled = true;
+                    return;
+                }
+                ApplyLocal(engine => engine.Scroll(rows));
+            }
+        }
+        args.Handled = true;
+    }
+
+    private bool ReportsMouse {
+        get {
+            bool mouseTrackingIsEnabled = _frame.MouseTracking != 0;
+            bool shiftTemporarilyDisablesMouseTracking = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            return IsRunning && mouseTrackingIsEnabled && !shiftTemporarilyDisablesMouseTracking;
+        }
+    }
+
+    private void HandleKeyboardFocusLost() {
+        CancelMouseInteraction();
+        CancelControlAltPress();
+        _controlAltComposition = null;
+        _committedComposition = null;
+        _textPressPending = false;
+        _textExpectedPhysicalText = null;
+        _shortcutKeys.Clear();
+        /*
+         * The release events of held keys go to the window that takes the focus,
+         * so release them here to keep applications tracking keys consistent.
+         */
+        ReleaseForwardedKeys();
+        Send(engine => engine.Focus(false));
+        InvalidateVisual();
+    }
+
+    private void ReleaseForwardedKeys() {
+        Key[] held = _forwardedKeys.ToArray();
+        _forwardedKeys.Clear();
+        Dictionary<Key, uint> codepoints = new(_forwardedKeyCodepoints);
+        _forwardedKeyCodepoints.Clear();
+        foreach (Key key in held) {
+            uint virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
+            codepoints.TryGetValue(key, out uint unshiftedCodepoint);
+            Send(engine => _session!.Key(virtualKey, Modifiers(), 0, unshiftedCodepoint, 0, ""));
+        }
+    }
 
     /// <inheritdoc />
     protected override void OnRender(DrawingContext context) {
@@ -728,7 +1221,7 @@ public class TerminalEmulator : Control {
                  */
                 foreach (TerminalRow? row in _rowSnapshots) {
                     if (row is not null) {
-                        _rows[row.Index] = _drawing.DrawRow(row);
+                        _rows[row.Index] = _drawing.DrawRow(row, _textBlinkOn);
                     }
                 }
                 _fontDirty = false;
@@ -749,8 +1242,10 @@ public class TerminalEmulator : Control {
         if (!showCursor) {
             return;
         }
-        Rect cursor = new(_frame.CursorX * _drawing.CellWidth, _frame.CursorY * _drawing.CellHeight,
-            _drawing.CellWidth, _drawing.CellHeight);
+        uint cursorY = _frame.CursorY;
+        bool cursorRowIsAvailable = cursorY < (uint)_rowSnapshots.Length;
+        TerminalRow? cursorRow = cursorRowIsAvailable ? _rowSnapshots[(int)cursorY] : null;
+        Rect cursor = _drawing.CursorBounds(_frame, cursorRow);
         if (_frame.CursorStyle == 0) {
             cursor.Width = 2;
         }
@@ -800,18 +1295,31 @@ public class TerminalEmulator : Control {
         _shortcutKeys.Remove(key);
         _textKey = (uint)KeyInterop.VirtualKeyFromKey(key);
         _textPressKey = key;
+        _textModifiers = Modifiers();
+        _textAction = args.IsRepeat ? 2u : 1u;
+        _textPressPending = true;
+        TerminalSession? session = _session;
+        _textUnshiftedCodepoint = session is null ? 0 : session.UnshiftedCodepoint(_textKey);
+        _textExpectedPhysicalText = session is null
+            ? null
+            : session.ExpectedPhysicalText(_textKey, _textModifiers);
+        _textConsumedModifiers = session is null
+            ? (ushort)0
+            : session.ConsumedModifiers(_textKey, _textModifiers);
         bool special = TextlessKey(key);
         bool control = (mods & ModifierKeys.Control) != 0 && (mods & ModifierKeys.Alt) == 0;
         bool controlAlt = (mods & (ModifierKeys.Control | ModifierKeys.Alt))
             == (ModifierKeys.Control | ModifierKeys.Alt) && !special;
         if (controlAlt) {
-            DeferControlAltPress(key, args.IsRepeat ? 2u : 1u);
+            DeferControlAltPress(key, _textAction, _textUnshiftedCodepoint);
             return;
         }
-        if (special || control) {
+        bool keyRequiresImmediateInput = special || control;
+        if (keyRequiresImmediateInput) {
             Send(engine => {
-                _session!.Key(_textKey, Modifiers(), args.IsRepeat ? 2u : 1u, "");
+                session!.Key(_textKey, _textModifiers, _textAction, _textUnshiftedCodepoint, 0, "");
                 _forwardedKeys.Add(key);
+                _forwardedKeyCodepoints[key] = _textUnshiftedCodepoint;
             }, true);
             args.Handled = true;
         }
@@ -822,6 +1330,11 @@ public class TerminalEmulator : Control {
         base.OnPreviewKeyUp(args);
         FlushControlAltPress();
         Key key = args.Key == Key.System ? args.SystemKey : args.Key;
+        bool pendingTextMatchesReleasedKey = _textPressPending && key == _textPressKey;
+        if (pendingTextMatchesReleasedKey) {
+            _textPressPending = false;
+            _textExpectedPhysicalText = null;
+        }
         /*
          * A held key can move between local shortcuts and terminal input when
          * modifiers change during autorepeat. Retire both kinds of state.
@@ -836,7 +1349,10 @@ public class TerminalEmulator : Control {
         if (!_forwardedKeys.Remove(key)) {
             return;
         }
-        Send(engine => _session!.Key((uint)KeyInterop.VirtualKeyFromKey(key), Modifiers(), 0, ""));
+        _forwardedKeyCodepoints.TryGetValue(key, out uint unshiftedCodepoint);
+        _forwardedKeyCodepoints.Remove(key);
+        uint virtualKey = (uint)KeyInterop.VirtualKeyFromKey(key);
+        Send(engine => _session!.Key(virtualKey, Modifiers(), 0, unshiftedCodepoint, 0, ""));
     }
 
     /// <inheritdoc />
@@ -850,34 +1366,53 @@ public class TerminalEmulator : Control {
         if (string.IsNullOrEmpty(text)) {
             return;
         }
-        ModifierKeys textModifiers = Keyboard.Modifiers;
-        DependencyProperty? shortcutProperty = GetShortcutProperty(_textPressKey, textModifiers);
-        bool shortcutKeyTracked = _shortcutKeys.Contains(_textPressKey);
-        bool shortcutTextIsLocal = shortcutProperty is not null && shortcutKeyTracked;
+        bool shortcutTextIsLocal = _shortcutKeys.Contains(_textPressKey);
         bool isEnterShortcut = _textPressKey == Key.Enter;
         bool isNewlineText = text is "\r" or "\n" or "\r\n";
         bool suppressEnterText = shortcutTextIsLocal && isEnterShortcut && isNewlineText;
         bool suppressOtherShortcutText = shortcutTextIsLocal && !isEnterShortcut;
         bool suppressShortcutText = suppressEnterText || suppressOtherShortcutText;
         if (suppressShortcutText) {
+            if (ReferenceEquals(_committedComposition, args.TextComposition)) {
+                _committedComposition = null;
+            }
             args.Handled = true;
             return;
         }
+        bool textHasPhysicalKey = _textPressPending && _textPressKey != Key.None;
+        bool textMatchesPhysicalKey = false;
+        bool textCanBeMatchedToPhysicalKey = textHasPhysicalKey && !TextlessKey(_textPressKey)
+            && _textExpectedPhysicalText is not null;
+        if (textCanBeMatchedToPhysicalKey) {
+            textMatchesPhysicalKey = string.Equals(_textExpectedPhysicalText, text, StringComparison.Ordinal);
+        }
+        bool committedComposition = args.TextComposition is FrameworkTextComposition
+            || ReferenceEquals(_committedComposition, args.TextComposition)
+            || (textHasPhysicalKey && !TextlessKey(_textPressKey) && !textMatchesPhysicalKey);
         bool controlAltText = _pendingControlAltPress is not null
             || ReferenceEquals(_controlAltComposition, args.TextComposition);
         CancelControlAltPress();
         _controlAltComposition = null;
+        if (ReferenceEquals(_committedComposition, args.TextComposition)) {
+            _committedComposition = null;
+        }
+        bool pureTextInput = committedComposition || controlAltText || !textHasPhysicalKey;
+        _textPressPending = false;
+        _textExpectedPhysicalText = null;
         Send(engine => {
-            if (controlAltText) {
+            if (pureTextInput) {
                 /*
-                 * AltGr produced text, rather than a Ctrl+Alt binding. Encode it
-                 * as composition text so Kitty does not substitute the physical key.
+                 * Composition text has no single physical key identity. Encode
+                 * the committed text directly so Kitty does not substitute one.
                  */
                 engine.Key(TerminalKey.Unidentified, (ushort)(Modifiers() & ~6), 1, text);
                 return;
             }
-            _session!.Key(_textKey, Modifiers(), 1, text);
+            TerminalSession session = _session!;
+            session.Key(_textKey, _textModifiers, _textAction, _textUnshiftedCodepoint,
+                _textConsumedModifiers, text);
             _forwardedKeys.Add(_textPressKey);
+            _forwardedKeyCodepoints[_textPressKey] = _textUnshiftedCodepoint;
         }, true);
         args.Handled = true;
     }
@@ -892,111 +1427,38 @@ public class TerminalEmulator : Control {
     /// <inheritdoc />
     protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs args) {
         base.OnLostKeyboardFocus(args);
-        CancelControlAltPress();
-        _controlAltComposition = null;
-        _shortcutKeys.Clear();
-        /*
-         * The release events of held keys go to the window that takes the focus,
-         * so release them here to keep applications tracking keys consistent.
-         */
-        ReleaseForwardedKeys();
-        Send(engine => engine.Focus(false));
-        InvalidateVisual();
-    }
-
-    private void ReleaseForwardedKeys() {
-        Key[] held = _forwardedKeys.ToArray();
-        _forwardedKeys.Clear();
-        foreach (Key key in held) {
-            Send(engine => _session!.Key((uint)KeyInterop.VirtualKeyFromKey(key), Modifiers(), 0, ""));
-        }
+        HandleKeyboardFocusLost();
     }
 
     /// <inheritdoc />
     protected override void OnMouseDown(MouseButtonEventArgs args) {
         base.OnMouseDown(args);
         Focus();
-        if (_session is null) {
-            return;
-        }
-        if (args.ChangedButton == MouseButton.Right) {
-            _copyMouseUpPending = false;
-            if (TryCopySelection()) {
-                _copyMouseUpPending = true;
-                args.Handled = true;
-                return;
-            }
-        }
-        FlushPendingSelection();
-        ClearSelectionDrag();
-        if (ReportsMouse) {
-            SendMouse(args, 0,
-                args.ChangedButton == MouseButton.Left ? 1u : args.ChangedButton == MouseButton.Right ? 2u : 3u);
-            CaptureMouse();
-        }
-        else if (args.ChangedButton == MouseButton.Left) {
-            _selectionStart = CellAt(args.GetPosition(this));
-            Point point = _selectionStart.Value;
-            _selectionEnd = point;
-            CaptureMouse();
-            ApplyLocal(engine =>
-                engine.Select((ushort)point.X, (ushort)point.Y, (ushort)point.X, (ushort)point.Y));
-        }
-        args.Handled = true;
+        HandleMouseDown(args, args.GetPosition(this), true);
     }
 
     /// <inheritdoc />
     protected override void OnMouseMove(MouseEventArgs args) {
         base.OnMouseMove(args);
-        if (_session is null) {
-            return;
-        }
-        if (ReportsMouse) {
-            SendMouse(args, 2, 0);
-            return;
-        }
-        bool selecting = _selectionStart.HasValue && args.LeftButton == MouseButtonState.Pressed;
-        if (!selecting) {
-            return;
-        }
-        Point point = CellAt(args.GetPosition(this));
-        QueueSelection(point);
+        HandleMouseMove(args.GetPosition(this));
     }
 
     /// <inheritdoc />
     protected override void OnMouseUp(MouseButtonEventArgs args) {
         base.OnMouseUp(args);
-        bool copiedWithRightButton = args.ChangedButton == MouseButton.Right && _copyMouseUpPending;
-        if (copiedWithRightButton) {
-            _copyMouseUpPending = false;
-            args.Handled = true;
-            return;
-        }
-        FlushPendingSelection();
-        if (ReportsMouse) {
-            SendMouse(args, 1,
-                args.ChangedButton == MouseButton.Left ? 1u : args.ChangedButton == MouseButton.Right ? 2u : 3u);
-        }
-        ClearSelectionDrag();
-        ReleaseMouseCapture();
-        args.Handled = true;
+        HandleMouseUp(args, args.GetPosition(this));
     }
 
     /// <inheritdoc />
     protected override void OnMouseWheel(MouseWheelEventArgs args) {
         base.OnMouseWheel(args);
-        if (_session is null) {
-            return;
-        }
-        if (ReportsMouse) {
-            SendMouse(args, 0, args.Delta > 0 ? 4u : 5u);
-        }
-        else {
-            FlushPendingSelection();
-            ClearSelectionDrag();
-            ApplyLocal(engine => engine.Scroll(-Math.Sign(args.Delta) * 3));
-        }
-        args.Handled = true;
+        HandleMouseWheel(args, args.GetPosition(this));
+    }
+
+    /// <inheritdoc />
+    protected override void OnLostMouseCapture(MouseEventArgs args) {
+        base.OnLostMouseCapture(args);
+        HandleMouseCaptureLost(args.GetPosition(this));
     }
 
     /// <summary>
@@ -1416,18 +1878,23 @@ public class TerminalEmulator : Control {
             if (IsRunning) {
                 return;
             }
-            ClearSelectionDrag();
+            CancelMouseInteraction();
+            RestoreBlinkingText();
             _copyMouseUpPending = false;
             _cursorOn = true;
             _lastBlink = DateTime.UtcNow;
             CancelControlAltPress();
             _controlAltComposition = null;
+            _committedComposition = null;
+            _textPressPending = false;
+            _textExpectedPhysicalText = null;
             TerminalSession? previous = _session;
             _session = null;
             if (previous is not null) {
                 await Task.Run(previous.Dispose);
             }
             _forwardedKeys.Clear();
+            _forwardedKeyCodepoints.Clear();
             ConfigureSize();
             string command = CommandLine;
             string? directory = WorkingDirectory;
@@ -1466,15 +1933,19 @@ public class TerminalEmulator : Control {
         await _lifecycle.WaitAsync();
         try {
             _timer.Stop();
+            RestoreBlinkingText();
             CancelControlAltPress();
             _controlAltComposition = null;
-            ClearSelectionDrag();
+            _committedComposition = null;
+            _textPressPending = false;
+            _textExpectedPhysicalText = null;
+            CancelMouseInteraction();
             _copyMouseUpPending = false;
             _cursorOn = true;
             _lastBlink = DateTime.UtcNow;
             _shortcutKeys.Clear();
             _forwardedKeys.Clear();
-            ReleaseMouseCapture();
+            _forwardedKeyCodepoints.Clear();
             TerminalSession? session = _session;
             _session = null;
             SetValue(IsRunningPropertyKey, false);

@@ -226,7 +226,7 @@ public sealed class TerminalShortcutOptionTests {
     }
 
     private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
-        RoutedEvent routedEvent) {
+                                         RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };
@@ -244,7 +244,7 @@ public sealed class TerminalShortcutOptionTests {
     }
 
     private static void RaiseLocalShortcut(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
-        ShortcutOption option) {
+                                           ShortcutOption option) {
         keyboard.SetModifiers(option.Modifiers);
         Assert.That(Keyboard.Modifiers, Is.EqualTo(option.Modifiers));
         KeyEventArgs press = RaiseKey(terminal, source, option.Key, Keyboard.PreviewKeyDownEvent);
@@ -344,7 +344,7 @@ public sealed class TerminalShortcutOptionTests {
 
     [TestCaseSource(nameof(CopyCases))]
     public void DisabledCopy_PreservesSelectionClipboardAndForwardsKey(string propertyName, Key key,
-        ModifierKeys modifiers, string? text) {
+                                                                       ModifierKeys modifiers, string? text) {
         TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
@@ -385,7 +385,7 @@ public sealed class TerminalShortcutOptionTests {
 
     [TestCaseSource(nameof(PasteCases))]
     public void DisabledPaste_ForwardsKeyWithoutClipboardPayloadOrBracketedPaste(string propertyName, Key key,
-        ModifierKeys modifiers, string? text) {
+                                                                                 ModifierKeys modifiers, string? text) {
         TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
@@ -423,7 +423,7 @@ public sealed class TerminalShortcutOptionTests {
 
     [TestCaseSource(nameof(ScrollCases))]
     public void DisabledScroll_LeavesBottomViewportUnchangedAndForwardsKey(string propertyName, Key key,
-        ModifierKeys modifiers, string? text) {
+                                                                           ModifierKeys modifiers, string? text) {
         TerminalEmulator terminal = new() { AutoStart = false };
         SetOption(terminal, propertyName, false);
         using HwndSource source = Host(terminal);
@@ -456,7 +456,7 @@ public sealed class TerminalShortcutOptionTests {
 
     [TestCaseSource(nameof(FontCases))]
     public void DisabledFontShortcut_KeepsCurrentSizeAndForwardsKey(string propertyName, Key key,
-        ModifierKeys modifiers, string? text) {
+                                                                    ModifierKeys modifiers, string? text) {
         TerminalEmulator terminal = new() { AutoStart = false, FontSize = 18 };
         using HwndSource source = Host(terminal);
         using KeyboardState keyboard = new();
@@ -544,7 +544,7 @@ public sealed class TerminalShortcutOptionTests {
             Assert.That(forwardedRepeat.Handled, Is.True);
             Assert.That(Field<HashSet<Key>>(terminal, "_shortcutKeys"), Does.Not.Contain(Key.V));
             Assert.That(Field<HashSet<Key>>(terminal, "_forwardedKeys"), Does.Contain(Key.V));
-            TextCompositionEventArgs text = RaiseText(terminal, "\u00e9");
+            TextCompositionEventArgs text = RaiseText(terminal, "v");
             KeyEventArgs release = RaiseKey(terminal, source, Key.V, Keyboard.PreviewKeyUpEvent);
             keyboard.SetModifiers(ModifierKeys.None);
             Assert.That(text.Handled, Is.True);
@@ -572,7 +572,7 @@ public sealed class TerminalShortcutOptionTests {
         internal string? Text { get; }
 
         internal ShortcutOption(string propertyName, Key key, ModifierKeys modifiers,
-            ShortcutGroup group, string? text) {
+                                ShortcutGroup group, string? text) {
             PropertyName = propertyName;
             Key = key;
             Modifiers = modifiers;

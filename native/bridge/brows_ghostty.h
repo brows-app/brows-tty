@@ -48,27 +48,32 @@ BT_API uint32_t bt_abi_version(void);
 BT_API void bt_lock(bt_terminal* terminal);
 BT_API void bt_unlock(bt_terminal* terminal);
 BT_API int bt_create(uint16_t columns, uint16_t rows, bt_output_fn output,
-    void* context, bt_terminal** result);
+                     void* context, bt_terminal** result);
 BT_API int bt_set_resize_pull_scrollback(bt_terminal* terminal, int enabled);
 BT_API void bt_free(bt_terminal* terminal);
 BT_API void bt_write(bt_terminal* terminal, const uint8_t* data, size_t length);
 BT_API int bt_resize(bt_terminal* terminal, uint16_t columns, uint16_t rows,
-    uint32_t cell_width, uint32_t cell_height);
+                     uint32_t cell_width, uint32_t cell_height);
+BT_API int bt_complete_output(bt_terminal* terminal);
 BT_API int bt_begin_frame(bt_terminal* terminal, bt_frame* frame, int force);
 BT_API int bt_next_row(bt_terminal* terminal, uint16_t* y,
-    const bt_cell** cells, const uint8_t** text, size_t* text_length);
+                       const bt_cell** cells, const uint8_t** text, size_t* text_length);
 BT_API int bt_end_frame(bt_terminal* terminal);
 BT_API int bt_key(bt_terminal* terminal, uint32_t key, uint16_t modifiers,
-    uint32_t action, const uint8_t* text, size_t text_length);
+                  uint32_t action, uint32_t unshifted_codepoint, uint16_t consumed_modifiers,
+                  const uint8_t* text, size_t text_length);
 BT_API int bt_paste(bt_terminal* terminal, uint8_t* text, size_t length);
 BT_API int bt_focus(bt_terminal* terminal, int focused);
 /* bottom is -1 for top, 0 for delta, and 1 for bottom. */
 BT_API void bt_scroll(bt_terminal* terminal, int32_t lines, int bottom);
 BT_API int bt_mouse(bt_terminal* terminal, uint32_t action, uint32_t button,
-    uint16_t modifiers, float x, float y, int any_pressed);
+                    uint16_t modifiers, float x, float y, int any_pressed);
 BT_API int bt_title(bt_terminal* terminal, const uint8_t** text, size_t* length);
 BT_API int bt_select(bt_terminal* terminal, uint16_t start_x, uint16_t start_y,
-    uint16_t end_x, uint16_t end_y, int clear);
+                     uint16_t end_x, uint16_t end_y, int clear);
+BT_API int bt_selection_begin(bt_terminal* terminal, uint16_t x, uint16_t y);
+BT_API int bt_selection_update(bt_terminal* terminal, uint16_t x, uint16_t y);
+BT_API void bt_selection_cancel(bt_terminal* terminal);
 BT_API int bt_selection_text(bt_terminal* terminal, const uint8_t** text, size_t* length);
 
 #endif

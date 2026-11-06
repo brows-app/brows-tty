@@ -7,6 +7,8 @@ using System.Buffers;
 namespace Brows.Ghostty;
 
 internal sealed class TerminalEngine : IDisposable {
+    private const int SelectionCanceled = 1;
+
 #if NET9_0_OR_GREATER
     private readonly Lock _gate = new();
 #else
@@ -35,18 +37,21 @@ internal sealed class TerminalEngine : IDisposable {
         }
     }
 
-    private unsafe void SendInput(byte* bytes, int length, bool paste, uint key, ushort modifiers, uint action) {
+    private unsafe void SendInput(byte* bytes, int length, bool paste, uint key, ushort modifiers, uint action,
+                                  uint unshiftedCodepoint, ushort consumedModifiers) {
         lock (_gate) {
             VerifyOpen();
             using NativeAccess access = new(_handle);
             int result = paste
                 ? NativeMethods.bt_paste(_handle, bytes, (UIntPtr)(uint)length)
-                : NativeMethods.bt_key(_handle, key, modifiers, action, bytes, (UIntPtr)(uint)length);
+                : NativeMethods.bt_key(_handle, key, modifiers, action, unshiftedCodepoint, consumedModifiers,
+                    bytes, (UIntPtr)(uint)length);
             Check(result);
         }
     }
 
-    private unsafe void EncodeInput(string text, bool paste, uint key = 0, ushort modifiers = 0, uint action = 0) {
+    private unsafe void EncodeInput(string text, bool paste, uint key = 0, ushort modifiers = 0, uint action = 0,
+                                    uint unshiftedCodepoint = 0, ushort consumedModifiers = 0) {
 #if NET5_0_OR_GREATER
         int length = Encoding.UTF8.GetByteCount(text);
         byte[]? rented = null;
@@ -56,7 +61,7 @@ internal sealed class TerminalEngine : IDisposable {
         try {
             Encoding.UTF8.GetBytes(text.AsSpan(), bytes);
             fixed (byte* pointer = bytes) {
-                SendInput(pointer, length, paste, key, modifiers, action);
+                SendInput(pointer, length, paste, key, modifiers, action, unshiftedCodepoint, consumedModifiers);
             }
         }
         finally {
@@ -71,9 +76,56 @@ internal sealed class TerminalEngine : IDisposable {
 #else
         byte[] bytes = Encoding.UTF8.GetBytes(text);
         fixed (byte* pointer = bytes) {
-            SendInput(pointer, bytes.Length, paste, key, modifiers, action);
+            SendInput(pointer, bytes.Length, paste, key, modifiers, action, unshiftedCodepoint, consumedModifiers);
         }
 #endif
+    }
+
+    private static uint DefaultUnshiftedCodepoint(TerminalKey key) {
+        uint keyValue = (uint)key;
+        uint letterStart = (uint)TerminalKey.A;
+        uint letterEnd = (uint)TerminalKey.Z;
+        bool isLetterKey = keyValue >= letterStart && keyValue <= letterEnd;
+        if (isLetterKey) {
+            return keyValue - letterStart + 'a';
+        }
+
+        uint digitStart = (uint)TerminalKey.Digit0;
+        uint digitEnd = (uint)TerminalKey.Digit9;
+        bool isDigitKey = keyValue >= digitStart && keyValue <= digitEnd;
+        if (isDigitKey) {
+            return keyValue - digitStart + '0';
+        }
+
+        switch (key) {
+            case TerminalKey.Backquote:
+                return '`';
+            case TerminalKey.Backslash:
+            case TerminalKey.IntlBackslash:
+                return '\\';
+            case TerminalKey.BracketLeft:
+                return '[';
+            case TerminalKey.BracketRight:
+                return ']';
+            case TerminalKey.Comma:
+                return ',';
+            case TerminalKey.Equal:
+                return '=';
+            case TerminalKey.Minus:
+                return '-';
+            case TerminalKey.Period:
+                return '.';
+            case TerminalKey.Quote:
+                return '\'';
+            case TerminalKey.Semicolon:
+                return ';';
+            case TerminalKey.Slash:
+                return '/';
+            case TerminalKey.Space:
+                return ' ';
+            default:
+                return 0;
+        }
     }
 
     private unsafe string ReadTitle() {
@@ -153,6 +205,14 @@ internal sealed class TerminalEngine : IDisposable {
         }
     }
 
+    internal void CompleteOutput() {
+        lock (_gate) {
+            VerifyOpen();
+            using NativeAccess access = new(_handle);
+            Check(NativeMethods.bt_complete_output(_handle));
+        }
+    }
+
     internal unsafe TerminalFrame ReadFrame(bool force = false) {
         lock (_gate) {
             VerifyOpen();
@@ -197,7 +257,14 @@ internal sealed class TerminalEngine : IDisposable {
     }
 
     internal void Key(TerminalKey key, ushort modifiers, uint action, string text) {
-        EncodeInput(text, false, (uint)key, modifiers, action);
+        uint unshiftedCodepoint = DefaultUnshiftedCodepoint(key);
+        ushort consumedModifiers = string.IsNullOrEmpty(text) ? (ushort)0 : (ushort)1;
+        Key(key, modifiers, action, unshiftedCodepoint, consumedModifiers, text);
+    }
+
+    internal void Key(TerminalKey key, ushort modifiers, uint action, uint unshiftedCodepoint,
+                      ushort consumedModifiers, string text) {
+        EncodeInput(text, false, (uint)key, modifiers, action, unshiftedCodepoint, consumedModifiers);
     }
 
     internal void Paste(string text) {
@@ -241,6 +308,35 @@ internal sealed class TerminalEngine : IDisposable {
             VerifyOpen();
             using NativeAccess access = new(_handle);
             Check(NativeMethods.bt_select(_handle, startX, startY, endX, endY, clear ? 1 : 0));
+        }
+    }
+
+    internal void BeginSelection(ushort x, ushort y) {
+        lock (_gate) {
+            VerifyOpen();
+            using NativeAccess access = new(_handle);
+            Check(NativeMethods.bt_selection_begin(_handle, x, y));
+        }
+    }
+
+    internal bool UpdateSelection(ushort x, ushort y) {
+        lock (_gate) {
+            VerifyOpen();
+            using NativeAccess access = new(_handle);
+            int result = NativeMethods.bt_selection_update(_handle, x, y);
+            if (result == SelectionCanceled) {
+                return false;
+            }
+            Check(result);
+            return true;
+        }
+    }
+
+    internal void CancelSelection() {
+        lock (_gate) {
+            VerifyOpen();
+            using NativeAccess access = new(_handle);
+            NativeMethods.bt_selection_cancel(_handle);
         }
     }
 

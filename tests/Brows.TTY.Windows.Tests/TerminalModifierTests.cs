@@ -30,7 +30,7 @@ public sealed class TerminalModifierTests {
     }
 
     private static void AssertEncodedPair(TerminalEngine terminal, List<byte> output, KeyboardState keyboard,
-        bool capsLock, bool numLock, string expectedBytes, string description) {
+                                          bool capsLock, bool numLock, string expectedBytes, string description) {
         keyboard.SetLocks(capsLock, numLock);
         Assert.That(Keyboard.IsKeyToggled(Key.CapsLock), Is.EqualTo(capsLock));
         Assert.That(Keyboard.IsKeyToggled(Key.NumLock), Is.EqualTo(numLock));

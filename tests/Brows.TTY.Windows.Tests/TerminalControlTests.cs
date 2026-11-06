@@ -386,7 +386,7 @@ public sealed class TerminalControlTests {
             Field<DispatcherTimer>(terminal, "_timer").Stop();
             byte[] text = Encoding.UTF8.GetBytes("\u001b[2J\u001b[Hcopied-text");
             session.Engine.Write(text, text.Length);
-            session.Engine.Select(0, 0, 0, 0);
+            session.Engine.BeginSelection(0, 0);
             typeof(TerminalEmulator).GetField("_selectionStart", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(terminal, new Point(0, 0));
             typeof(TerminalEmulator).GetField("_selectionEnd", BindingFlags.Instance | BindingFlags.NonPublic)!

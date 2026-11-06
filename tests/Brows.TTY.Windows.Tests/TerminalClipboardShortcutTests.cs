@@ -127,7 +127,7 @@ public sealed class TerminalClipboardShortcutTests {
     }
 
     private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
-        RoutedEvent routedEvent) {
+                                         RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };

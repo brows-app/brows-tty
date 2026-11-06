@@ -49,6 +49,9 @@ jobs:
       - name: Build native libraries and test helpers (x64 and ARM64)
         run: ./scripts/Build-Native.ps1
 
+      - name: Test native buffer growth
+        run: ./scripts/Test-NativeBufferGrowth.ps1
+
       - name: Restore
         run: dotnet restore brows-tty.slnx "-p:Version=$env:PACKAGE_VERSION"
 

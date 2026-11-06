@@ -115,7 +115,7 @@ public sealed class TerminalScrollShortcutTests {
     }
 
     private static void RaiseKeyPair(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
-        Key key, ModifierKeys modifiers, out bool downHandled, out bool upHandled) {
+                                     Key key, ModifierKeys modifiers, out bool downHandled, out bool upHandled) {
         keyboard.SetModifiers(modifiers);
         Assert.That(Keyboard.Modifiers, Is.EqualTo(modifiers), "The requested modifier state must be active.");
         KeyEventArgs down = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {

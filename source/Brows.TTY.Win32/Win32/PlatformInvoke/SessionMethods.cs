@@ -10,7 +10,7 @@ internal static class SessionMethods {
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Unicode)]
     internal static extern int bt_session_create(string command, string? directory,
-        ushort columns, ushort rows, out IntPtr result);
+                                                 ushort columns, ushort rows, out IntPtr result);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern IntPtr bt_session_terminal(SessionHandle session);

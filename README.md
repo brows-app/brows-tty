@@ -159,8 +159,15 @@ resolves colors and graphemes and exposes dirty rows in batches. Synchronization
 protects frame snapshots from concurrent terminal writes.
 
 WPF retains frozen row drawings, groups backgrounds and ASCII glyph runs, and
-rebuilds only changed rows at up to approximately 60 frames per second. Complex
-graphemes use WPF text shaping and font fallback. There is no UI element per cell.
+rebuilds changed rows at up to approximately 60 frames per second. Text blink has
+its own 500 ms phase, independent of the cursor, and redraws only rows with blinking
+cells from retained snapshots. The final frame shows blinking text after a stop or
+process exit. Single, double, curly, dotted, and dashed underlines retain their
+SGR underline color and scale to the current DPI. Concealed cells keep their
+background and selection color but hide glyphs and all foreground decorations;
+selection text remains available to copy. Missing ASCII glyphs use a per-style
+Consolas fallback while keeping fixed cell advances. Complex graphemes use WPF
+text shaping and font fallback. There is no UI element per cell.
 Ghostty handles alternate screens, scrollback, resize reflow, cursor state, and
 synchronized output with a bounded render hold. ConPTY sessions keep historical
 rows in scrollback when growing the window so their active screen and cursor
@@ -193,6 +200,7 @@ Visual C++ build tools and redistributables are not required. SIMD remains enabl
 
 ```powershell
 ./scripts/Build-Native.ps1
+./scripts/Test-NativeBufferGrowth.ps1
 dotnet build brows-tty.slnx -c Release
 dotnet test brows-tty.slnx -c Release --no-build --logger trx --results-directory out/test-results
 dotnet pack brows-tty.slnx -c Release --no-build
@@ -208,14 +216,14 @@ rules copy their own assets for AnyCPU and .NET Framework consumers. The WPF
 package obtains native files through its dependencies.
 
 NUnit integration tests load the real native library, run real ConPTY shells,
-round-trip color queries through a native console test program,
-exercise WPF input/lifecycle in an invisible HWND, and render terminal output to
-a PNG. `tests.runsettings` uses process isolation because WPF owns process-wide
-rendering state. Cross-compiling ARM64 is separate from running on an ARM64 host;
-local execution evidence is recorded in [_agents/Progress.md](_agents/Progress.md).
-The package check uses a fresh isolated NuGet cache, verifies the dependency
-direction and native asset ownership, and runs six consumers: core, UI-free Win32
-transport, and WPF, each on both frameworks.
+round-trip color queries through a native console test program, exercise WPF
+input and lifecycle in an invisible HWND, and render terminal output to a PNG.
+`tests.runsettings` uses process isolation because WPF owns process-wide rendering
+state. CI runs the four managed test suites sequentially on x64. ARM64 binaries
+are cross-compiled; runtime validation requires an ARM64 Windows host. The package
+check uses a fresh isolated NuGet cache, verifies dependency direction and native
+asset ownership, and runs twelve consumers: core, UI-free Win32 transport, and WPF,
+each on its four supported frameworks.
 
 The sample offers Command Prompt and Windows PowerShell restart buttons, process
 status, and a scrollable sidebar for its 20 local shortcuts. Each restart button
@@ -232,10 +240,11 @@ Source namespaces start at `Brows`; the control is `Brows.Windows.Controls.Termi
 
 [workflow.yml](.github/workflows/workflow.yml) validates pushes to `dev` and
 published GitHub releases on a Windows x64 runner. It installs the SDK from
-`global.json`, builds native x64 and ARM64 assets, builds all managed targets,
-runs both test targets sequentially, and packs and verifies all three packages
-and six consuming applications. Test reports and packages are uploaded as
-workflow artifacts. ARM64 binaries are cross-compiled, not runtime-tested.
+`global.json`, builds native x64 and ARM64 assets, runs the native buffer-growth
+check, builds all managed targets, runs four test suites sequentially, and packs
+and verifies all three packages and twelve consuming applications. Test reports
+and packages are uploaded as workflow artifacts. ARM64 binaries are
+cross-compiled, not runtime-tested.
 
 Published releases also push the verified packages to nuget.org. The release
 name supplies the package version, for example `1.2.3` or `1.2.3-beta.1`;

@@ -103,7 +103,7 @@ public sealed class TerminalFontShortcutTests {
     }
 
     private static KeyEventArgs RaiseKey(TerminalEmulator terminal, HwndSource source, Key key,
-        RoutedEvent routedEvent) {
+                                         RoutedEvent routedEvent) {
         KeyEventArgs args = new(Keyboard.PrimaryDevice, source, Environment.TickCount, key) {
             RoutedEvent = routedEvent
         };
@@ -112,7 +112,7 @@ public sealed class TerminalFontShortcutTests {
     }
 
     private static void RaiseFontShortcut(TerminalEmulator terminal, HwndSource source, KeyboardState keyboard,
-        Key key, ModifierKeys modifiers, string? text = null) {
+                                          Key key, ModifierKeys modifiers, string? text = null) {
         keyboard.SetModifiers(modifiers);
         KeyEventArgs press = RaiseKey(terminal, source, key, Keyboard.PreviewKeyDownEvent);
         Assert.That(press.Handled, Is.True, "The local font shortcut must consume its key press.");
@@ -249,7 +249,7 @@ public sealed class TerminalFontShortcutTests {
             DrainInput();
 
             session.Engine.Key(TerminalKey.Unidentified, 0, 1, "!");
-            const string expectedInput = "2b21";
+            const string expectedInput = "1b5b34353b3675" + "1b5b34353b363a3375" + "2b21";
             WaitFor(() => ReadKeyBytes(session).EndsWith("21", StringComparison.Ordinal));
             Assert.That(ReadKeyBytes(session), Is.EqualTo(expectedInput),
                 "AltGr plus must reach the child exactly once as text.");

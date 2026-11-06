@@ -57,12 +57,42 @@ internal sealed class TerminalSession : IDisposable {
     }
 
     internal void Resize(ushort columns, ushort rows, uint width, uint height) {
+        bool columnsAreInvalid = columns == 0 || columns > 32767;
+        if (columnsAreInvalid) {
+            throw new ArgumentOutOfRangeException(nameof(columns));
+        }
+        bool rowsAreInvalid = rows == 0 || rows > 32767;
+        if (rowsAreInvalid) {
+            throw new ArgumentOutOfRangeException(nameof(rows));
+        }
         Engine.Resize(columns, rows, width, height);
         Marshal.ThrowExceptionForHR(SessionMethods.bt_session_resize(_handle, columns, rows));
     }
 
     internal void Key(uint virtualKey, ushort modifiers, uint action, string text) {
-        Engine.Key((TerminalKey)SessionMethods.bt_win32_key(virtualKey), modifiers, action, text);
+        uint unshiftedCodepoint = WindowsKeyTranslator.UnshiftedCodepoint(virtualKey);
+        ushort consumedModifiers = string.IsNullOrEmpty(text)
+            ? (ushort)0
+            : WindowsKeyTranslator.ConsumedModifiers(virtualKey, modifiers);
+        Key(virtualKey, modifiers, action, unshiftedCodepoint, consumedModifiers, text);
+    }
+
+    internal uint UnshiftedCodepoint(uint virtualKey) {
+        return WindowsKeyTranslator.UnshiftedCodepoint(virtualKey);
+    }
+
+    internal ushort ConsumedModifiers(uint virtualKey, ushort modifiers) {
+        return WindowsKeyTranslator.ConsumedModifiers(virtualKey, modifiers);
+    }
+
+    internal string? ExpectedPhysicalText(uint virtualKey, ushort modifiers) {
+        return WindowsKeyTranslator.ExpectedPhysicalText(virtualKey, modifiers);
+    }
+
+    internal void Key(uint virtualKey, ushort modifiers, uint action, uint unshiftedCodepoint,
+                      ushort consumedModifiers, string text) {
+        Engine.Key((TerminalKey)SessionMethods.bt_win32_key(virtualKey), modifiers, action,
+            unshiftedCodepoint, consumedModifiers, text);
     }
 
     internal void Stop() {

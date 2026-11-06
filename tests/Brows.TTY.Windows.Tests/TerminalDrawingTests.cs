@@ -22,7 +22,7 @@ public sealed class TerminalDrawingTests {
     }
 
     private static NativeCell CreateCell(uint textOffset, uint foreground = 0xffffffff, ushort flags = 0,
-        uint underline = 0, uint textLength = 1) {
+                                         uint underline = 0, uint textLength = 1) {
         return new NativeCell {
             Foreground = foreground,
             Background = 0xff000000,

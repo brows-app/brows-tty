@@ -172,7 +172,7 @@ public sealed class TerminalResizeTests {
     }
 
     private static void AssertRestoredHistoryAndPrompt(TerminalEmulator terminal, HwndSource source,
-        TerminalSession session) {
+                                                       TerminalSession session) {
         for (int press = 0; press < 2; press++) {
             int priorPromptCount = CountOccurrences(ReadText(session), ShellPrompt);
             PressEnter(terminal, source);

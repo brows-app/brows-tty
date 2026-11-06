@@ -297,7 +297,8 @@ int bt_focus(bt_terminal* t, int focused) {
 
 void bt_scroll(bt_terminal* t, int32_t lines, int bottom) {
     GhosttyTerminalScrollViewport scroll = {
-        .tag = bottom ? GHOSTTY_SCROLL_VIEWPORT_BOTTOM : GHOSTTY_SCROLL_VIEWPORT_DELTA,
+        .tag = bottom < 0 ? GHOSTTY_SCROLL_VIEWPORT_TOP
+            : bottom ? GHOSTTY_SCROLL_VIEWPORT_BOTTOM : GHOSTTY_SCROLL_VIEWPORT_DELTA,
         .value = { .delta = lines }
     };
     ghostty_terminal_scroll_viewport(t->terminal, scroll);

@@ -198,6 +198,14 @@ internal sealed class TerminalEngine : IDisposable {
         }
     }
 
+    internal void ScrollToTop() {
+        lock (_gate) {
+            VerifyOpen();
+            using NativeAccess access = new(_handle);
+            NativeMethods.bt_scroll(_handle, 0, -1);
+        }
+    }
+
     internal void Mouse(uint action, uint button, ushort modifiers, float x, float y, bool pressed) {
         lock (_gate) {
             VerifyOpen();

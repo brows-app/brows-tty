@@ -22,6 +22,9 @@ public class Terminal : Control {
         ClipToBoundsProperty.OverrideMetadata(typeof(Terminal), new FrameworkPropertyMetadata(true));
     }
 
+    private const double MinimumZoomFontSize = 1.0;
+    private const double FontZoomStep = 1.0;
+
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
     private readonly TerminalDrawing _drawing = new();
     private readonly DispatcherTimer _timer;
@@ -32,6 +35,8 @@ public class Terminal : Control {
     private NativeFrame _frame;
     private bool _forceFrame = true;
     private bool _fontDirty = true;
+    private double? _fontZoomResetSize;
+    private bool _settingFontZoomSize;
     private bool _cursorOn = true;
     private DateTime _lastBlink = DateTime.UtcNow;
     private Point? _selectionStart;
@@ -60,10 +65,105 @@ public class Terminal : Control {
 
     private static void FontChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) {
         Terminal terminal = (Terminal)sender;
+        bool fontSizeChanged = args.Property == FontSizeProperty;
+        bool fontSizeChangeIsExternal = fontSizeChanged && !terminal._settingFontZoomSize;
+        if (fontSizeChangeIsExternal) {
+            terminal._fontZoomResetSize = (double)args.NewValue;
+        }
         terminal._fontDirty = true;
         terminal._forceFrame = true;
         terminal.InvalidateMeasure();
         terminal.InvalidateVisual();
+    }
+
+    private static bool IsUsableFontSize(double fontSize) {
+        bool fontSizeIsFinite = !double.IsNaN(fontSize) && !double.IsInfinity(fontSize);
+        bool fontSizeIsPositive = fontSize > 0;
+        bool fontSizePassesDependencyPropertyValidation = FontSizeProperty.IsValidValue(fontSize);
+        return fontSizeIsFinite && fontSizeIsPositive && fontSizePassesDependencyPropertyValidation;
+    }
+
+    private static DependencyProperty RegisterShortcutProperty(string propertyName) {
+        return DependencyProperty.Register(propertyName, typeof(bool), typeof(Terminal), new PropertyMetadata(true));
+    }
+
+    private static DependencyProperty? GetShortcutProperty(Key key, ModifierKeys modifiers) {
+        switch (modifiers) {
+            case ModifierKeys.None:
+                if (key == Key.Enter) { return PressEnterToCopyProperty; }
+                break;
+            case ModifierKeys.Control:
+                switch (key) {
+                    case Key.C: return PressControlPlusCToCopyProperty;
+                    case Key.Insert: return PressControlPlusInsertToCopyProperty;
+                    case Key.V: return PressControlPlusVToPasteProperty;
+                    case Key.OemPlus: return PressControlPlusEqualsToIncreaseFontSizeProperty;
+                    case Key.Add: return PressControlPlusAddToIncreaseFontSizeProperty;
+                    case Key.OemMinus: return PressControlPlusMinusToDecreaseFontSizeProperty;
+                    case Key.Subtract: return PressControlPlusSubtractToDecreaseFontSizeProperty;
+                    case Key.D0: return PressControlPlus0ToResetFontSizeProperty;
+                    case Key.NumPad0: return PressControlPlusNumPad0ToResetFontSizeProperty;
+                }
+                break;
+            case ModifierKeys.Control | ModifierKeys.Shift:
+                switch (key) {
+                    case Key.C: return PressControlPlusShiftPlusCToCopyProperty;
+                    case Key.V: return PressControlPlusShiftPlusVToPasteProperty;
+                    case Key.Up: return PressControlPlusShiftPlusUpToScrollProperty;
+                    case Key.Down: return PressControlPlusShiftPlusDownToScrollProperty;
+                    case Key.PageUp: return PressControlPlusShiftPlusPageUpToScrollOnePageProperty;
+                    case Key.PageDown: return PressControlPlusShiftPlusPageDownToScrollOnePageProperty;
+                    case Key.Home: return PressControlPlusShiftPlusHomeToScrollToTopProperty;
+                    case Key.End: return PressControlPlusShiftPlusEndToScrollToBottomProperty;
+                    case Key.OemPlus: return PressControlPlusShiftPlusEqualsToIncreaseFontSizeProperty;
+                }
+                break;
+            case ModifierKeys.Shift:
+                if (key == Key.Insert) { return PressShiftPlusInsertToPasteProperty; }
+                break;
+        }
+        return null;
+    }
+
+    private bool TryHandleFontShortcut(Key key, ModifierKeys mods) {
+        bool controlOnly = mods == ModifierKeys.Control;
+        bool controlWithShift = mods == (ModifierKeys.Control | ModifierKeys.Shift);
+        bool oemPlus = key == Key.OemPlus && (controlOnly || controlWithShift);
+        bool numpadPlus = key == Key.Add && controlOnly;
+        bool zoomIn = oemPlus || numpadPlus;
+        bool zoomOut = (key is Key.OemMinus or Key.Subtract) && controlOnly;
+        bool reset = (key is Key.D0 or Key.NumPad0) && controlOnly;
+        bool fontShortcut = zoomIn || zoomOut || reset;
+        if (!fontShortcut) {
+            return false;
+        }
+        RegisterShortcutKey(key);
+        double currentFontSize = FontSize;
+        _fontZoomResetSize ??= currentFontSize;
+        double targetFontSize = currentFontSize;
+        if (reset) {
+            targetFontSize = _fontZoomResetSize.Value;
+        }
+        else if (zoomIn) {
+            targetFontSize = currentFontSize + FontZoomStep;
+        }
+        else if (currentFontSize > MinimumZoomFontSize) {
+            targetFontSize = Math.Max(MinimumZoomFontSize, currentFontSize - FontZoomStep);
+        }
+        bool targetFontSizeIsUsable = IsUsableFontSize(targetFontSize);
+        bool targetFontSizeChanged = targetFontSize != currentFontSize;
+        bool targetFontSizeCanBeApplied = targetFontSizeIsUsable && targetFontSizeChanged;
+        if (!targetFontSizeCanBeApplied) {
+            return true;
+        }
+        _settingFontZoomSize = true;
+        try {
+            SetCurrentValue(FontSizeProperty, targetFontSize);
+        }
+        finally {
+            _settingFontZoomSize = false;
+        }
+        return true;
     }
 
     private static ushort Modifiers() {
@@ -208,6 +308,9 @@ public class Terminal : Control {
             _drawing.Configure(FontFamily, FontSize, dpi.PixelsPerDip);
             _fontDirty = false;
         }
+        bool actualSizeIsBelowOneCell = ActualWidth < _drawing.CellWidth
+            || ActualHeight < _drawing.CellHeight;
+        if (actualSizeIsBelowOneCell) { return; }
         ushort columns = (ushort)Math.Max(1, Math.Min(32767, Math.Floor(ActualWidth / _drawing.CellWidth)));
         ushort lines = (ushort)Math.Max(1, Math.Min(32767, Math.Floor(ActualHeight / _drawing.CellHeight)));
         uint cellPixelWidth = (uint)Math.Max(1, Math.Round(_drawing.CellWidth * dpi.DpiScaleX));
@@ -300,6 +403,84 @@ public class Terminal : Control {
             RefreshFrame();
         }
         catch (Exception exception) { HandleFailure(session, exception); }
+    }
+
+    private void RegisterShortcutKey(Key key) {
+        _shortcutKeys.Add(key);
+        _textPressKey = key;
+    }
+
+    private bool TryHandleClipboardShortcut(Key key, ModifierKeys modifiers) {
+        bool enterCopy = key == Key.Enter && modifiers == ModifierKeys.None;
+        if (enterCopy) {
+            bool copyHandled = _shortcutKeys.Contains(key) || TryCopySelection();
+            if (!copyHandled) { return false; }
+            RegisterShortcutKey(key);
+            return true;
+        }
+        bool controlCopy = key == Key.C && modifiers == ModifierKeys.Control;
+        if (controlCopy) {
+            bool copyHandled = _shortcutKeys.Contains(key) || TryCopySelection();
+            if (!copyHandled) { return false; }
+            RegisterShortcutKey(key);
+            return true;
+        }
+        bool copy = (key == Key.C && modifiers == (ModifierKeys.Control | ModifierKeys.Shift))
+            || (key == Key.Insert && modifiers == ModifierKeys.Control);
+        if (copy) {
+            RegisterShortcutKey(key);
+            CopySelection();
+            return true;
+        }
+        bool paste = (key == Key.V && (modifiers == ModifierKeys.Control
+                || modifiers == (ModifierKeys.Control | ModifierKeys.Shift)))
+            || (key == Key.Insert && modifiers == ModifierKeys.Shift);
+        if (paste) {
+            RegisterShortcutKey(key);
+            PasteClipboard();
+            return true;
+        }
+        return false;
+    }
+
+    private bool TryHandleScrollShortcut(Key key, ModifierKeys modifiers) {
+        if (modifiers != (ModifierKeys.Control | ModifierKeys.Shift)) { return false; }
+
+        bool scrollUp = key == Key.Up;
+        bool scrollDown = key == Key.Down;
+        bool pageUp = key == Key.PageUp;
+        bool pageDown = key == Key.PageDown;
+        bool top = key == Key.Home;
+        bool bottom = key == Key.End;
+        bool usesWheelRows = scrollUp || scrollDown;
+        bool usesViewportPages = pageUp || pageDown;
+        bool isScrollShortcut = usesWheelRows || usesViewportPages || top || bottom;
+        if (!isScrollShortcut) { return false; }
+
+        RegisterShortcutKey(key);
+        FlushPendingSelection();
+        ClearSelectionDrag();
+        if (_session is null) { return true; }
+
+        if (usesWheelRows) {
+            int lines = SystemParameters.WheelScrollLines;
+            if (lines == -1) { lines = _lines; }
+            if (lines < 0) { lines = 0; }
+            int delta = scrollUp ? -lines : lines;
+            ApplyLocal(engine => engine.Scroll(delta));
+            return true;
+        }
+        if (usesViewportPages) {
+            int delta = pageUp ? -_lines : _lines;
+            ApplyLocal(engine => engine.Scroll(delta));
+            return true;
+        }
+        if (top) {
+            ApplyLocal(engine => engine.ScrollToTop());
+            return true;
+        }
+        ApplyLocal(engine => engine.Scroll(0, true));
+        return true;
     }
 
     private bool TryCopySelection() {
@@ -444,22 +625,18 @@ public class Terminal : Control {
             /* Leave window close and the system menu to the host. */
             return;
         }
-        bool controlCopy = key == Key.C && mods == ModifierKeys.Control;
-        if (controlCopy) {
-            bool copyHandled = _shortcutKeys.Contains(key) || TryCopySelection();
-            if (copyHandled) {
-                _shortcutKeys.Add(key);
-                _textPressKey = key;
+        DependencyProperty? shortcutProperty = GetShortcutProperty(key, mods);
+        bool shortcutEnabled = shortcutProperty is not null && (bool)GetValue(shortcutProperty);
+        if (shortcutEnabled) {
+            bool shortcutHandled = TryHandleScrollShortcut(key, mods)
+                || TryHandleFontShortcut(key, mods)
+                || TryHandleClipboardShortcut(key, mods);
+            if (shortcutHandled) {
                 args.Handled = true;
                 return;
             }
         }
-        bool copy = (key == Key.C && mods == (ModifierKeys.Control | ModifierKeys.Shift))
-            || (key == Key.Insert && mods == ModifierKeys.Control);
-        bool paste = (key == Key.V && mods == (ModifierKeys.Control | ModifierKeys.Shift))
-            || (key == Key.Insert && mods == ModifierKeys.Shift);
-        if (copy) { _shortcutKeys.Add(key); _textPressKey = key; CopySelection(); args.Handled = true; return; }
-        if (paste) { _shortcutKeys.Add(key); PasteClipboard(); args.Handled = true; return; }
+        _shortcutKeys.Remove(key);
         _textKey = (uint)KeyInterop.VirtualKeyFromKey(key);
         _textPressKey = key;
         bool special = TextlessKey(key);
@@ -501,10 +678,15 @@ public class Terminal : Control {
         string text = string.IsNullOrEmpty(args.Text) ? args.SystemText : args.Text;
         if (string.IsNullOrEmpty(text)) { return; }
         ModifierKeys textModifiers = Keyboard.Modifiers;
-        bool copyModifiers = textModifiers == ModifierKeys.Control
-            || textModifiers == (ModifierKeys.Control | ModifierKeys.Shift);
-        bool copyShortcutText = copyModifiers && _shortcutKeys.Contains(_textPressKey);
-        if (copyShortcutText) {
+        DependencyProperty? shortcutProperty = GetShortcutProperty(_textPressKey, textModifiers);
+        bool shortcutKeyTracked = _shortcutKeys.Contains(_textPressKey);
+        bool shortcutTextIsLocal = shortcutProperty is not null && shortcutKeyTracked;
+        bool isEnterShortcut = _textPressKey == Key.Enter;
+        bool isNewlineText = text is "\r" or "\n" or "\r\n";
+        bool suppressEnterText = shortcutTextIsLocal && isEnterShortcut && isNewlineText;
+        bool suppressOtherShortcutText = shortcutTextIsLocal && !isEnterShortcut;
+        bool suppressShortcutText = suppressEnterText || suppressOtherShortcutText;
+        if (suppressShortcutText) {
             args.Handled = true;
             return;
         }
@@ -644,6 +826,106 @@ public class Terminal : Control {
     public static readonly DependencyProperty AutoStartProperty = DependencyProperty.Register(nameof(AutoStart),
         typeof(bool), typeof(Terminal), new PropertyMetadata(true));
     /// <summary>
+    /// Identifies whether Enter copies selected text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressEnterToCopyProperty =
+        RegisterShortcutProperty(nameof(PressEnterToCopy));
+    /// <summary>
+    /// Identifies whether Ctrl+C copies selected text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusCToCopyProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusCToCopy));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+C copies selected text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusCToCopyProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusCToCopy));
+    /// <summary>
+    /// Identifies whether Ctrl+Insert copies selected text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusInsertToCopyProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusInsertToCopy));
+    /// <summary>
+    /// Identifies whether Ctrl+V pastes clipboard text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusVToPasteProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusVToPaste));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+V pastes clipboard text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusVToPasteProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusVToPaste));
+    /// <summary>
+    /// Identifies whether Shift+Insert pastes clipboard text. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressShiftPlusInsertToPasteProperty =
+        RegisterShortcutProperty(nameof(PressShiftPlusInsertToPaste));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+Up scrolls history. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusUpToScrollProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusUpToScroll));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+Down scrolls history. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusDownToScrollProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusDownToScroll));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+PageUp scrolls up one page. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusPageUpToScrollOnePageProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusPageUpToScrollOnePage));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+PageDown scrolls down one page. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusPageDownToScrollOnePageProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusPageDownToScrollOnePage));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+Home scrolls to the top. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusHomeToScrollToTopProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusHomeToScrollToTop));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+End scrolls to the bottom. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusEndToScrollToBottomProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusEndToScrollToBottom));
+    /// <summary>
+    /// Identifies whether Ctrl+Equals increases the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusEqualsToIncreaseFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusEqualsToIncreaseFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+Shift+Equals increases the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusShiftPlusEqualsToIncreaseFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusShiftPlusEqualsToIncreaseFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+Numpad Plus increases the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusAddToIncreaseFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusAddToIncreaseFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+Minus decreases the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusMinusToDecreaseFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusMinusToDecreaseFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+Numpad Minus decreases the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusSubtractToDecreaseFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusSubtractToDecreaseFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+0 resets the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlus0ToResetFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlus0ToResetFontSize));
+    /// <summary>
+    /// Identifies whether Ctrl+Numpad 0 resets the font size. The default is true.
+    /// </summary>
+    public static readonly DependencyProperty PressControlPlusNumPad0ToResetFontSizeProperty =
+        RegisterShortcutProperty(nameof(PressControlPlusNumPad0ToResetFontSize));
+    /// <summary>
     /// Identifies the read-only running state.
     /// </summary>
     public static readonly DependencyProperty IsRunningProperty = IsRunningPropertyKey.DependencyProperty;
@@ -684,6 +966,146 @@ public class Terminal : Control {
     /// Gets or sets whether loading starts the process. Unloading always stops it asynchronously.
     /// </summary>
     public bool AutoStart { get => (bool)GetValue(AutoStartProperty); set => SetValue(AutoStartProperty, value); }
+    /// <summary>
+    /// Gets or sets whether Enter copies selected text.
+    /// </summary>
+    public bool PressEnterToCopy {
+        get => (bool)GetValue(PressEnterToCopyProperty);
+        set => SetValue(PressEnterToCopyProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+C copies selected text.
+    /// </summary>
+    public bool PressControlPlusCToCopy {
+        get => (bool)GetValue(PressControlPlusCToCopyProperty);
+        set => SetValue(PressControlPlusCToCopyProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+C copies selected text.
+    /// </summary>
+    public bool PressControlPlusShiftPlusCToCopy {
+        get => (bool)GetValue(PressControlPlusShiftPlusCToCopyProperty);
+        set => SetValue(PressControlPlusShiftPlusCToCopyProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Insert copies selected text.
+    /// </summary>
+    public bool PressControlPlusInsertToCopy {
+        get => (bool)GetValue(PressControlPlusInsertToCopyProperty);
+        set => SetValue(PressControlPlusInsertToCopyProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+V pastes clipboard text.
+    /// </summary>
+    public bool PressControlPlusVToPaste {
+        get => (bool)GetValue(PressControlPlusVToPasteProperty);
+        set => SetValue(PressControlPlusVToPasteProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+V pastes clipboard text.
+    /// </summary>
+    public bool PressControlPlusShiftPlusVToPaste {
+        get => (bool)GetValue(PressControlPlusShiftPlusVToPasteProperty);
+        set => SetValue(PressControlPlusShiftPlusVToPasteProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Shift+Insert pastes clipboard text.
+    /// </summary>
+    public bool PressShiftPlusInsertToPaste {
+        get => (bool)GetValue(PressShiftPlusInsertToPasteProperty);
+        set => SetValue(PressShiftPlusInsertToPasteProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+Up scrolls history.
+    /// </summary>
+    public bool PressControlPlusShiftPlusUpToScroll {
+        get => (bool)GetValue(PressControlPlusShiftPlusUpToScrollProperty);
+        set => SetValue(PressControlPlusShiftPlusUpToScrollProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+Down scrolls history.
+    /// </summary>
+    public bool PressControlPlusShiftPlusDownToScroll {
+        get => (bool)GetValue(PressControlPlusShiftPlusDownToScrollProperty);
+        set => SetValue(PressControlPlusShiftPlusDownToScrollProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+PageUp scrolls up one page.
+    /// </summary>
+    public bool PressControlPlusShiftPlusPageUpToScrollOnePage {
+        get => (bool)GetValue(PressControlPlusShiftPlusPageUpToScrollOnePageProperty);
+        set => SetValue(PressControlPlusShiftPlusPageUpToScrollOnePageProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+PageDown scrolls down one page.
+    /// </summary>
+    public bool PressControlPlusShiftPlusPageDownToScrollOnePage {
+        get => (bool)GetValue(PressControlPlusShiftPlusPageDownToScrollOnePageProperty);
+        set => SetValue(PressControlPlusShiftPlusPageDownToScrollOnePageProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+Home scrolls to the top.
+    /// </summary>
+    public bool PressControlPlusShiftPlusHomeToScrollToTop {
+        get => (bool)GetValue(PressControlPlusShiftPlusHomeToScrollToTopProperty);
+        set => SetValue(PressControlPlusShiftPlusHomeToScrollToTopProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+End scrolls to the bottom.
+    /// </summary>
+    public bool PressControlPlusShiftPlusEndToScrollToBottom {
+        get => (bool)GetValue(PressControlPlusShiftPlusEndToScrollToBottomProperty);
+        set => SetValue(PressControlPlusShiftPlusEndToScrollToBottomProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Equals increases the font size.
+    /// </summary>
+    public bool PressControlPlusEqualsToIncreaseFontSize {
+        get => (bool)GetValue(PressControlPlusEqualsToIncreaseFontSizeProperty);
+        set => SetValue(PressControlPlusEqualsToIncreaseFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Shift+Equals increases the font size.
+    /// </summary>
+    public bool PressControlPlusShiftPlusEqualsToIncreaseFontSize {
+        get => (bool)GetValue(PressControlPlusShiftPlusEqualsToIncreaseFontSizeProperty);
+        set => SetValue(PressControlPlusShiftPlusEqualsToIncreaseFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Numpad Plus increases the font size.
+    /// </summary>
+    public bool PressControlPlusAddToIncreaseFontSize {
+        get => (bool)GetValue(PressControlPlusAddToIncreaseFontSizeProperty);
+        set => SetValue(PressControlPlusAddToIncreaseFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Minus decreases the font size.
+    /// </summary>
+    public bool PressControlPlusMinusToDecreaseFontSize {
+        get => (bool)GetValue(PressControlPlusMinusToDecreaseFontSizeProperty);
+        set => SetValue(PressControlPlusMinusToDecreaseFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Numpad Minus decreases the font size.
+    /// </summary>
+    public bool PressControlPlusSubtractToDecreaseFontSize {
+        get => (bool)GetValue(PressControlPlusSubtractToDecreaseFontSizeProperty);
+        set => SetValue(PressControlPlusSubtractToDecreaseFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+0 resets the font size.
+    /// </summary>
+    public bool PressControlPlus0ToResetFontSize {
+        get => (bool)GetValue(PressControlPlus0ToResetFontSizeProperty);
+        set => SetValue(PressControlPlus0ToResetFontSizeProperty, value);
+    }
+    /// <summary>
+    /// Gets or sets whether Ctrl+Numpad 0 resets the font size.
+    /// </summary>
+    public bool PressControlPlusNumPad0ToResetFontSize {
+        get => (bool)GetValue(PressControlPlusNumPad0ToResetFontSizeProperty);
+        set => SetValue(PressControlPlusNumPad0ToResetFontSizeProperty, value);
+    }
     /// <summary>
     /// Gets whether the root process is running.
     /// </summary>

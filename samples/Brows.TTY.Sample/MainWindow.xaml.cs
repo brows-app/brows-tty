@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -10,15 +11,47 @@ public partial class MainWindow : Window {
     private bool _closePending;
     private bool _allowClose;
     private bool _windowClosed;
+    private bool _restartInProgress;
 
-    private async void RestartClick(object sender, RoutedEventArgs args) {
+    private async void RestartCommandPromptClick(object sender, RoutedEventArgs args) {
+        string commandLine = "\"" + Path.Combine(Environment.SystemDirectory, "cmd.exe") + "\"";
+        await RestartShellAsync(commandLine);
+    }
+
+    private async void RestartPowerShellClick(object sender, RoutedEventArgs args) {
+        await RestartShellAsync("powershell.exe -NoLogo");
+    }
+
+    private async Task RestartShellAsync(string commandLine) {
+        bool restartIsBlocked = _closePending || _windowClosed || _restartInProgress;
+        if (restartIsBlocked) { return; }
+        _restartInProgress = true;
+        RestartCommandPromptButton.IsEnabled = false;
+        RestartPowerShellButton.IsEnabled = false;
         try {
+            Status.Text = "Restarting shell…";
             await Console.StopAsync();
+            bool windowIsClosing = _closePending || _windowClosed;
+            if (windowIsClosing) { return; }
+            Console.CommandLine = commandLine;
             await Console.StartAsync();
+            bool windowIsOpen = !_closePending && !_windowClosed;
+            if (!windowIsOpen) { return; }
             Status.Text = "Running";
             Console.Focus();
         }
-        catch (Exception exception) { Status.Text = exception.Message; }
+        catch (Exception exception) {
+            bool windowIsOpen = !_closePending && !_windowClosed;
+            if (windowIsOpen) { Status.Text = exception.Message; }
+        }
+        finally {
+            _restartInProgress = false;
+            bool windowIsOpen = !_closePending && !_windowClosed;
+            if (windowIsOpen) {
+                RestartCommandPromptButton.IsEnabled = true;
+                RestartPowerShellButton.IsEnabled = true;
+            }
+        }
     }
 
     private void ProcessExited(object sender, TerminalExitedEventArgs args) {

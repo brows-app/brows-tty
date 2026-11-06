@@ -62,6 +62,7 @@ BT_API int bt_key(bt_terminal* terminal, uint32_t key, uint16_t modifiers,
     uint32_t action, const uint8_t* text, size_t text_length);
 BT_API int bt_paste(bt_terminal* terminal, uint8_t* text, size_t length);
 BT_API int bt_focus(bt_terminal* terminal, int focused);
+/* bottom is -1 for top, 0 for delta, and 1 for bottom. */
 BT_API void bt_scroll(bt_terminal* terminal, int32_t lines, int bottom);
 BT_API int bt_mouse(bt_terminal* terminal, uint32_t action, uint32_t button,
     uint16_t modifiers, float x, float y, int any_pressed);

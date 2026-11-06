@@ -3,17 +3,138 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:tty="http://schemas.brows.app/winfx/2026/xaml/presentation"
         Title="Brows Terminal" Width="1000" Height="640" Background="#1E1E1E">
+  <Window.Resources>
+    <Style TargetType="{x:Type CheckBox}">
+      <Setter Property="Foreground" Value="#E0E0E0" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="Margin" Value="0,3" />
+      <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+      <Setter Property="ContentTemplate">
+        <Setter.Value>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" TextWrapping="Wrap" />
+          </DataTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style TargetType="{x:Type GroupBox}">
+      <Setter Property="Foreground" Value="#FFFFFF" />
+      <Setter Property="BorderBrush" Value="#555555" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="Margin" Value="0,0,0,8" />
+    </Style>
+  </Window.Resources>
   <DockPanel>
     <Border DockPanel.Dock="Top" Background="#252526" Padding="12,8">
       <DockPanel>
-        <Button DockPanel.Dock="Right" Content="Restart" Padding="12,4" Click="RestartClick" />
-        <TextBlock Foreground="#DDDDDD" VerticalAlignment="Center"
-                   Text="Ghostty terminal · Ctrl+Shift+C copy · Ctrl+Shift+V paste · Shift+drag select" />
+        <Button x:Name="RestartCommandPromptButton" DockPanel.Dock="Right"
+                Content="Restart in Command Prompt" Padding="10,4" Margin="8,0,0,0"
+                Click="RestartCommandPromptClick" />
+        <Button x:Name="RestartPowerShellButton" DockPanel.Dock="Right"
+                Content="Restart in PowerShell" Padding="10,4" Margin="8,0,0,0"
+                Click="RestartPowerShellClick" />
+        <TextBlock Foreground="#DDDDDD" VerticalAlignment="Center" TextWrapping="NoWrap"
+                   TextTrimming="CharacterEllipsis"
+                   Text="Ghostty terminal · Configure local shortcuts at left · Focus the terminal to use keys" />
       </DockPanel>
     </Border>
     <TextBlock x:Name="Status" DockPanel.Dock="Bottom" Foreground="#CCCCCC" Margin="12,4"
                Text="Starting shell…" />
-    <tty:Terminal x:Name="Console" Margin="8" FontSize="16"
-                  ProcessExited="ProcessExited" Failed="TerminalFailed" />
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="290" />
+        <ColumnDefinition Width="*" MinWidth="320" />
+      </Grid.ColumnDefinitions>
+      <Border Grid.Column="0" Background="#252526" BorderBrush="#3C3C3C" BorderThickness="1"
+              CornerRadius="2" Margin="8,8,0,8" Padding="10">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+            <TextBlock Text="Local shortcuts" Foreground="#FFFFFF" FontSize="16" FontWeight="SemiBold" />
+            <TextBlock Text="Checked enables the local action; unchecked sends the key to the terminal."
+                       Foreground="#C8C8C8" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="After changing an option, focus the terminal to try it."
+                       Foreground="#C8C8C8" FontSize="12" Margin="0,3,0,0" TextWrapping="Wrap" />
+          </StackPanel>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel>
+              <GroupBox Header="Copy and paste">
+                <StackPanel>
+                  <CheckBox Content="Enter copies selection"
+                            IsChecked="{Binding Path=PressEnterToCopy,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+C copies selection"
+                            IsChecked="{Binding Path=PressControlPlusCToCopy,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+C copies selection"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusCToCopy,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Insert copies selection"
+                            IsChecked="{Binding Path=PressControlPlusInsertToCopy,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+V pastes clipboard"
+                            IsChecked="{Binding Path=PressControlPlusVToPaste,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+V pastes clipboard"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusVToPaste,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Shift+Insert pastes clipboard"
+                            IsChecked="{Binding Path=PressShiftPlusInsertToPaste,
+                                                ElementName=Console, Mode=TwoWay}" />
+                </StackPanel>
+              </GroupBox>
+              <GroupBox Header="Scrolling">
+                <StackPanel>
+                  <CheckBox Content="Ctrl+Shift+Up scrolls history"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusUpToScroll,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+Down scrolls history"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusDownToScroll,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+PageUp scrolls one page up"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusPageUpToScrollOnePage,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+PageDown scrolls one page down"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusPageDownToScrollOnePage,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+Home scrolls to top"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusHomeToScrollToTop,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+End scrolls to bottom"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusEndToScrollToBottom,
+                                                ElementName=Console, Mode=TwoWay}" />
+                </StackPanel>
+              </GroupBox>
+              <GroupBox Header="Font size">
+                <StackPanel>
+                  <CheckBox Content="Ctrl+= increases font size"
+                            IsChecked="{Binding Path=PressControlPlusEqualsToIncreaseFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Shift+= increases font size"
+                            IsChecked="{Binding Path=PressControlPlusShiftPlusEqualsToIncreaseFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Numpad + increases font size"
+                            IsChecked="{Binding Path=PressControlPlusAddToIncreaseFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+- decreases font size"
+                            IsChecked="{Binding Path=PressControlPlusMinusToDecreaseFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Numpad - decreases font size"
+                            IsChecked="{Binding Path=PressControlPlusSubtractToDecreaseFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+0 resets font size"
+                            IsChecked="{Binding Path=PressControlPlus0ToResetFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                  <CheckBox Content="Ctrl+Numpad 0 resets font size"
+                            IsChecked="{Binding Path=PressControlPlusNumPad0ToResetFontSize,
+                                                ElementName=Console, Mode=TwoWay}" />
+                </StackPanel>
+              </GroupBox>
+            </StackPanel>
+          </ScrollViewer>
+        </DockPanel>
+      </Border>
+      <tty:Terminal x:Name="Console" Grid.Column="1" Margin="8" FontSize="16"
+                    ProcessExited="ProcessExited" Failed="TerminalFailed" />
+    </Grid>
   </DockPanel>
 </Window>

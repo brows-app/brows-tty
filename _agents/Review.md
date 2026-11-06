@@ -469,3 +469,235 @@ prevent treating them as an isolated causal throughput benchmark.
 Profiling artifacts and captures remain under ignored out/perf/. Final tracked
 and untracked source/test/script changes were reviewed for scope, ownership,
 encoding and whitespace; generated binaries, packages and logs are excluded.
+
+## Shortcut implementation review (2026-11-05)
+
+The requested small Windows Terminal shortcuts are being integrated in three
+independently reviewed and validated groups. GPT-6-Luna Max agents implement the
+changes; the parent reviews production paths and tests, runs acceptance checks,
+and commits each completed group. No new public API is introduced.
+
+### #15 (Resolved) — New clipboard fixture lacked dispatcher synchronization
+
+The initial TerminalClipboardShortcutTests fixture omitted the dispatcher
+synchronization-context setup used by existing WPF fixtures. StartAsync could
+continue on a worker thread after await and fail before reaching shortcut behavior.
+The fixture now installs/restores DispatcherSynchronizationContext in setup/teardown.
+The corrected cases execute and pass on all four frameworks.
+
+### #16 (Resolved) — Shortcut tests used incorrect forwarded-key expectations
+
+Early clipboard/scroll drafts expected forwarded key-up events to be marked
+Handled, although the existing control only marks locally consumed releases.
+The clipboard draft also expected an unnecessary default modifier in the Kitty
+Enter press encoding. These were incorrect test expectations, not requirements
+to change process input. Tests now assert actual protocol bytes independently
+and distinguish a local copy release from a forwarded release.
+
+### Clipboard group acceptance
+
+- Enter with a selection copies/clears it and consumes repeats, CR/LF text and
+  release. Enter without a selection preserves the complete Kitty press/release.
+- Ctrl+V uses the existing bracketed-paste encoder. Ctrl+Shift+V and Shift+Insert
+  remain supported, and Ctrl+Alt+V composition remains application input.
+- The agent's buildable counterfactual disabled the new Enter-copy/Ctrl+V branches:
+  two cases failed with leaked key bytes, four passed. After restoring source
+  byte-for-byte, the focused fixture plus transition regressions passed 12/12.
+- Parent validation: both native architectures built; Release solution build had
+  zero warnings/errors. Sequential x64 tests passed 126/126 on net462, net48,
+  net8.0-windows and net10.0-windows (504 total; no skips).
+- All three packages packed; package assets/dependency checks and consumers on
+  all four frameworks passed. As in the previous validation, the ignored
+  PowerShell-5-compatible verifier copy was used. ARM64 was cross-compiled and
+  package-checked, not runtime-tested.
+
+### #17 (Resolved) — Scroll test draft did not respect all target frameworks
+
+The initial scroll fixture assigned NativeFrame.Rows (uint) to int without a
+cast and used a newer string overload. The test now uses a checked row-count
+conversion and string operations supported on every target. Both framework
+builds and actual test runs confirm the corrected fixture compiles and executes.
+
+### #18 (Resolved) — Scroll documentation omitted modifiers on page/history keys
+
+The draft README described PageUp/PageDown and Home/End without repeating the
+Ctrl+Shift modifiers, which could imply those plain keys were intercepted. The
+README now names every complete chord. Plain and other modifier combinations
+remain process input, as the real key-echo regression verifies.
+
+### #19 (Resolved) — AltGr test setup unnecessarily persisted clipboard ownership
+
+After the RDP session disconnected, the new Ctrl+Alt+V test could fail during
+Clipboard.SetText/OleFlushClipboard before reaching the input behavior. This
+case only requires in-process clipboard data. Its setup now uses a real Unicode
+DataObject with copy:false, avoiding unnecessary persistence. The assertions
+still verify unchanged clipboard contents and exact AltGr bytes; production
+clipboard behavior was not altered.
+
+### Scrolling group acceptance
+
+- Ctrl+Shift+Up/Down follows the Windows wheel row count, including page mode.
+  Ctrl+Shift+PageUp/PageDown moves by a viewport; Ctrl+Shift+Home/End jumps to
+  the earliest/latest history. The native bridge adds TOP via the existing int
+  selector while preserving the old 0/1 behavior and the ABI layout.
+- ScrollShortcuts_UseConfiguredRowsPagesAndHistoryBoundsWithoutSendingKeys checks
+  real history positions and a child-process byte barrier. AlternateScreenScrollShortcuts_
+  StayOnActiveScreenAndDoNotSendKeys and NonExactModifiers_ForwardPageKeyToChild
+  cover alternate-screen and ordinary application input.
+- A compiled counterfactual disabling only the scroll handler call failed 2/3
+  cases; the nonexact forwarding case remained green. Restoring source and forcing
+  a fresh build passed 3/3. The forced build avoided a stale counterfactual DLL
+  after Copy-Item preserved an older source timestamp.
+- Both native architectures built. Release solution build: zero warnings/errors.
+  Final sequential x64 runs passed 129/129 on each of the four frameworks
+  (516 total, no skips). Package contents, dependency directions and all consumer
+  applications passed on all four frameworks; ARM64 execution remains unvalidated.
+
+The desktop disconnected during this group (query user reported session 2 Disc),
+causing existing RenderTargetBitmap assertions to return black pixels across
+frameworks. The final tests did not skip or weaken those assertions: the WPF
+ShouldRenderEvenWhenNoDisplayDevicesAreAvailable switch was enabled only in
+ignored generated test/consumer runtime configurations. .NET Framework required
+an isolated copy of the same SDK VSTest host under out/shortcuts/vstest with its
+startup config adjusted; net8/net10 used their generated runtimeconfig files.
+The repository's runsettings and shipped defaults remain unchanged. See the
+[WPF switch source](https://source.dot.net/PresentationCore/MS/Internal/CoreAppContextSwitches.cs.html)
+for the opt-in behavior. Temporary validation scripts and captures are in out/.
+
+### #20 (Resolved) — Font fixture assumed unsupported synthetic punctuation bytes
+
+The draft negative-case test guessed a Kitty byte sequence for a synthetic
+Ctrl+Shift+OEMMinus press without an accompanying text event, then waited for
+that sequence. The observed stream contained only the AltGr plus and barrier.
+The corrected test checks unchanged FontSize and the existing forwarded-key
+state across the excluded minus gesture, and independently requires exact 2b21
+for one AltGr plus followed by the barrier. It does not weaken AltGr-once
+verification or expand this feature into a punctuation-encoding change.
+
+### Font group acceptance and final shortcut validation
+
+- Ctrl+OEMPlus and Ctrl+Shift+OEMPlus increase FontSize by one; Ctrl+OEMMinus
+  decreases it. Ctrl+Add/Subtract and Ctrl+NumPad0 provide keypad equivalents;
+  Ctrl+D0/Ctrl+NumPad0 reset to the configured size.
+- SetCurrentValue preserves bindings. An external FontSize change becomes the
+  next reset baseline, while the control's own zoom changes do not overwrite it.
+  Zoom-out stops at one DIP and leaves a valid external size below one unchanged;
+  reset can restore that external value. Upper candidates use the existing WPF
+  dependency-property validation rather than an arbitrary low cap.
+- FontShortcuts_ZoomAndResetBindingBaseline runs both with and without a live
+  process, checks actual renderer metrics, binding preservation, external baseline
+  changes and all OEM/keypad gestures. FontZoomOut_AtOrBelowOneDipLeavesSizeAndResetBaseline
+  covers 0.5/1.0 boundaries. FontShortcuts_LeaveShiftedMinusAndAltGrPlusAsTerminalInput
+  checks exact modifiers and AltGr text; the running positive case verifies no
+  gesture press, release or generated text reaches the child.
+- A buildable counterfactual disabling only the font handler failed four cases
+  (local key releases were no longer consumed) and passed the excluded-modifier
+  case. A forced rebuild after restoring the handler passed all five cases.
+- Parent's final Release solution build passed with zero warnings/errors.
+  Sequential x64 integration runs passed 134/134 on each of net462, net48,
+  net8.0-windows and net10.0-windows: 536 total, no skipped cases. The test-only
+  headless host configuration described above retained every rendering assertion.
+- Both native architectures had already been rebuilt for the scrolling group;
+  the font group changes no native source. Final package contents, dependency
+  directions and all core/transport/WPF consumers passed on all four frameworks,
+  including real rendered glyph checks. ARM64 runtime validation remains unavailable.
+
+All seven requested Small items are complete: Enter-to-copy, Ctrl+V paste,
+Ctrl+Shift+Up/Down, Ctrl+Shift+PageUp/PageDown, Ctrl+Shift+Home/End, Ctrl+Plus/Minus
+and Ctrl+0, including keypad font keys. Each group was reviewed and validated
+before its separate commit. No new public API, dependency, framework, shipping
+runtime configuration or release-workflow change was introduced. Generated files,
+isolated test tools and logs remain ignored under out/.
+
+### #21 (Resolved) - Changing a shortcut option during a press could leak its text
+
+The initial configurable-shortcut implementation checked the live dependency
+property again in Terminal.OnTextInput after a local key-down had already been
+handled. Turning that property off before text arrived could forward part of the
+consumed press to the child. Terminal.cs now retains the key-down decision for
+text and release events. A subsequent forwarded press removes stale local-key
+tracking, so disabling a shortcut also works while the key repeats.
+
+The LocalPress_StaysLocalAfterItsOptionTurnsOffBeforeTextAndRelease and
+NewForwardedRepeat_RetiresOldLocalTrackingAndAllowsText tests exercise both
+transitions against the real Ghostty/ConPTY key-echo process, including exact
+paste, key, release and barrier bytes.
+
+### Configurable shortcut acceptance
+
+- Added 20 independent public Boolean dependency properties on Terminal, all
+  named Press... and all defaulting to true. They cover local clipboard,
+  history-scrolling and font actions. False follows normal terminal input;
+  window-host gestures, mouse actions and explicit API calls are unaffected.
+- README Usage documents the supported shortcuts, every option and a XAML
+  example. WPF bindings and per-instance values are covered by the new fixture.
+- Both implementation and test work used GPT-6-Luna with Max reasoning. Parent
+  review corrected the mid-press decision described in #21. The production-gate
+  counterfactual ignored all false values and failed all 20 disabled cases;
+  restoring the exact source and forcing a rebuild passed all 43 focused cases.
+- Native x64 and ARM64 builds passed. Release solution builds passed with zero
+  warnings/errors on all four targets. Sequential x64 integration suites passed
+  177/177 on net462, net48, net8.0-windows and net10.0-windows: 708 total, no skips.
+  The previously described test-only headless rendering setup retained all
+  rendering assertions; shipping configuration was not changed.
+- All three packages and all 12 core/transport/WPF consumers passed across the
+  four frameworks, including C# initializers and XAML setting the new properties.
+  ARM64 was cross-compiled; runtime execution still requires an ARM64 runner.
+
+### #22 (Resolved) - A collapsed terminal resizes its active grid to one cell
+
+`source/Brows.TTY.Windows/Windows/Controls/Terminal.cs:305` computes terminal
+columns and rows from layout dimensions, clamping each to at least one even when
+no cell fits. In the sample, the fixed sidebar can leave the terminal with zero
+width during a horizontal shrink. ConfigureSize sends a one-column resize to
+Ghostty and ConPTY, which reflows the active screen; restoring the width leaves
+old output in scrollback and a sparse active viewport that input keeps selecting.
+
+Parent reproduction in the real sample with CMD observed ActualWidth 694 and
+78 columns, then ActualWidth 0 and one column, then 78 columns after restoration.
+After each of two Enter presses, only resize-row-60 remained in the active
+viewport and the prompt was misaligned. Before-fix capture is in ignored
+out/perf/resize-repro-before.txt.
+
+The control fix configures font metrics, then defers grid/pixel-cache changes and
+native resize while either layout dimension is below a full cell. It retains the
+last usable grid (or the initial 80x24 defaults before layout), then applies the
+current layout when it can display a cell. Tests cover width/height collapse,
+sub-cell layouts, restoration and input against real WPF/Ghostty/ConPTY.
+
+A gradual drag can also pass through valid one-column layouts before reaching
+zero. The pinned Ghostty header explicitly requires disabling scrollback pull
+for ConPTY during both row growth and column reflow. At one column, prior active
+lines wrap into history and intentionally stay there on widening so the active
+screen continues to match ConPTY. Changing that flag would regress cursor
+alignment. The sample instead gives its terminal Grid column a 320-DIP minimum:
+a narrow window clips this usable layout while retaining about 34 text columns.
+The window can still shrink freely. This sample policy does not impose a global
+minimum on Terminal or change valid small-grid reflow semantics.
+
+Parent reran the exact gradual sample reproduction: 78 -> 45 -> 34 columns,
+retaining 34 while fully clipped, then 78 on expansion. After each Enter, 26
+history rows remained visible with aligned prompts. Capture:
+out/perf/resize-repro-gradual-final.txt (ignored).
+
+Validation:
+
+- GPT-6-Luna Max implemented the control/sample changes and regression fixture;
+  parent reviewed the source, tests, native resize contract and final diff.
+- Four pre-fix zero/sub-cell cases failed with 100 -> 1 columns or 23 -> 1 rows.
+  The final fixture passes all eight cases, including unmeasured 80x24 startup,
+  valid one-/two-column grids, direct zero-width collapse, and the actual sample's
+  gradual layout collapse. History is asserted in the active viewport after
+  input, and earlier scrollback plus aligned cursor/prompt rows are verified.
+- Removing only the sample column minimum failed the gradual-layout regression;
+  restoring the exact XAML, rebuilding and rerunning passed all eight cases.
+- Parent reproduced the gradual sample sequence with both CMD and Windows
+  PowerShell. History remained visible after two Enter presses in each shell.
+- Native x64/ARM64 builds passed. All four managed targets built with zero
+  warnings/errors. Sequential x64 integration suites passed 185/185 on each of
+  net462, net48, net8.0-windows and net10.0-windows: 740 total, no skips. The
+  existing ignored headless test-host configuration retained rendering assertions.
+- All three packages and 12 isolated consuming applications passed across the
+  four frameworks. ARM64 was cross-compiled; runtime execution still requires
+  an ARM64 Windows runner. Generated output, captures and validation scripts
+  remain ignored under out/.

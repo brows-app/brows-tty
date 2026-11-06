@@ -26,6 +26,10 @@ Engine and transport implementation types remain internal, shared with the WPF
 assembly through friend declarations. This split introduces no new public engine
 API. Native **Windows x64 and ARM64** binaries are bundled.
 
+## Usage
+
+### Add the control
+
 ```xml
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:tty="http://schemas.brows.app/winfx/2026/xaml/presentation">
@@ -45,18 +49,77 @@ Use Windows 10 version 1809 or later for ConPTY. ARM64 requires an ARM64-capable
 Windows/.NET runtime; an emulated x64 process loads the x64 native libraries.
 32-bit processes are not supported. Use a monospaced font for terminal layout.
 
-## Interaction
+### Keyboard shortcuts
 
-- Type commands and use Enter, Ctrl+C, function keys, arrows, and application
-  shortcuts normally. Ghostty encodes keys using the active terminal modes.
-- Alt+F4 closes the host window; Alt+Space opens its system menu. These
-  shortcuts remain available while the terminal has focus.
-- Drag to select text; use Shift+drag when an application captures the mouse.
-- Copy selected text with Ctrl+C, Ctrl+Shift+C, Ctrl+Insert, or right-click.
-  A successful copy clears the selection. With no selection, Ctrl+C reaches the
-  process. Paste with Ctrl+Shift+V or Shift+Insert.
+Focus the terminal to type commands. Brows.TTY handles the shortcuts below;
+other keys are encoded by Ghostty using the application's active terminal modes.
+
+| Shortcut | Action |
+|---|---|
+| Enter or Ctrl+C | Copy selected text and clear the selection. Without a selection, send the key to the process. |
+| Ctrl+Shift+C or Ctrl+Insert | Copy selected text and clear the selection. |
+| Ctrl+V, Ctrl+Shift+V, or Shift+Insert | Paste clipboard text using the terminal's paste mode. |
+| Ctrl+Shift+Up | Scroll history up by the Windows wheel row count. |
+| Ctrl+Shift+Down | Scroll history down by the Windows wheel row count. |
+| Ctrl+Shift+PageUp | Scroll up by one viewport. |
+| Ctrl+Shift+PageDown | Scroll down by one viewport. |
+| Ctrl+Shift+Home | Jump to the earliest history. |
+| Ctrl+Shift+End | Jump to the latest output. |
+| Ctrl+=, Ctrl+Shift+=, or Ctrl+numpad + | Increase the font size by one. |
+| Ctrl+- or Ctrl+numpad - | Decrease the font size by one, down to a zoom minimum of one. |
+| Ctrl+0 or Ctrl+numpad 0 | Restore the configured FontSize. |
+| Alt+F4 | Close the host window. |
+| Alt+Space | Open the host window's system menu. |
+
+Ctrl+Shift+Up/Down scrolls by one viewport when Windows is configured for page
+scrolling. Font reset uses the latest externally configured FontSize, and zooming
+preserves its WPF binding. Alt+F4 and Alt+Space remain available to the host window.
+
+Each locally handled shortcut has a WPF dependency property that defaults to
+`true`. Set one to `false` to send that key combination through terminal input
+instead of performing its local action. Changes apply to subsequent key presses;
+text and release events from an already handled press stay local.
+
+| Shortcut | Property |
+|---|---|
+| Enter | `PressEnterToCopy` |
+| Ctrl+C | `PressControlPlusCToCopy` |
+| Ctrl+Shift+C | `PressControlPlusShiftPlusCToCopy` |
+| Ctrl+Insert | `PressControlPlusInsertToCopy` |
+| Ctrl+V | `PressControlPlusVToPaste` |
+| Ctrl+Shift+V | `PressControlPlusShiftPlusVToPaste` |
+| Shift+Insert | `PressShiftPlusInsertToPaste` |
+| Ctrl+Shift+Up | `PressControlPlusShiftPlusUpToScroll` |
+| Ctrl+Shift+Down | `PressControlPlusShiftPlusDownToScroll` |
+| Ctrl+Shift+PageUp | `PressControlPlusShiftPlusPageUpToScrollOnePage` |
+| Ctrl+Shift+PageDown | `PressControlPlusShiftPlusPageDownToScrollOnePage` |
+| Ctrl+Shift+Home | `PressControlPlusShiftPlusHomeToScrollToTop` |
+| Ctrl+Shift+End | `PressControlPlusShiftPlusEndToScrollToBottom` |
+| Ctrl+= (OemPlus) | `PressControlPlusEqualsToIncreaseFontSize` |
+| Ctrl+Shift+= (OemPlus) | `PressControlPlusShiftPlusEqualsToIncreaseFontSize` |
+| Ctrl+Numpad + (Add) | `PressControlPlusAddToIncreaseFontSize` |
+| Ctrl+- (OemMinus) | `PressControlPlusMinusToDecreaseFontSize` |
+| Ctrl+Numpad - (Subtract) | `PressControlPlusSubtractToDecreaseFontSize` |
+| Ctrl+0 (D0) | `PressControlPlus0ToResetFontSize` |
+| Ctrl+Numpad 0 | `PressControlPlusNumPad0ToResetFontSize` |
+
+For example, this returns Ctrl+C and Ctrl+Shift+PageUp to the terminal:
+
+```xml
+<tty:Terminal PressControlPlusCToCopy="False"
+              PressControlPlusShiftPlusPageUpToScrollOnePage="False" />
+```
+
+### Mouse interaction
+
+- Drag to select text. Hold Shift while dragging when an application captures
+  the mouse to select text locally.
+- Right-click selected text to copy it and clear the selection.
 - The mouse wheel scrolls terminal history or is forwarded to a mouse-aware
   application. Hold Shift to scroll history locally.
+
+### Control API
+
 - `Paste(string)` sends text using Ghostty's bracketed-paste handling. It does
   not append Enter. `CopySelection()` copies and clears the selection;
   `PasteClipboard()` pastes clipboard text.
@@ -149,8 +212,16 @@ The package check uses a fresh isolated NuGet cache, verifies the dependency
 direction and native asset ownership, and runs six consumers: core, UI-free Win32
 transport, and WPF, each on both frameworks.
 
-The sample shows a shell with restart and failure/exit status. Source namespaces
-start at `Brows`; the control is `Brows.Windows.Controls.Terminal`.
+The sample offers Command Prompt and Windows PowerShell restart buttons, process
+status, and a scrollable sidebar for its 20 local shortcuts. Each restart button
+stops the current process, selects its shell command, starts it, and returns
+focus to the terminal. Checked shortcut options enable local handling; unchecked
+options send the chord through terminal input. Changes apply to subsequent key
+presses, so refocus the terminal after changing a checkbox. A press already
+handled locally remains local through its text and release events. Very narrow
+sample windows clip the terminal at its minimum layout width; expanding the
+window reveals it again without reflowing the shell to a single column.
+Source namespaces start at `Brows`; the control is `Brows.Windows.Controls.Terminal`.
 
 ## GitHub workflow
 

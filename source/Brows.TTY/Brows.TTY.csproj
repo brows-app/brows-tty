@@ -4,7 +4,7 @@
     <PackageTags>terminal;ghostty</PackageTags>
   </PropertyGroup>
   <ItemGroup>
-    <None Include="buildTransitive/Brows.TTY.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="buildTransitive/net462/Brows.TTY.targets" Pack="true" PackagePath="buildTransitive/net462/" />
     <None Include="../../out/native/win-x64/bin/ghostty-vt.dll"
           Link="runtimes/win-x64/native/ghostty-vt.dll"
           CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest"

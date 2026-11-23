@@ -211,9 +211,17 @@ dotnet run --project samples/Brows.TTY.Sample -c Release -f net10.0-windows
 Generated outputs are under `out/`. All three source libraries are packable;
 samples and tests are not. Packing fails if required native binaries are missing.
 The core package owns Ghostty and `brows-ghostty.dll`; the Win32 package owns
-`brows-tty-win32.dll`, `conpty.dll`, and `OpenConsole.exe`. Their `buildTransitive`
-rules copy their own assets for AnyCPU and .NET Framework consumers. The WPF
-package obtains native files through its dependencies.
+`brows-tty-win32.dll`, `conpty.dll`, and `OpenConsole.exe`. Both packages place
+them under `runtimes/win-x64/native/` and `runtimes/win-arm64/native/`, which
+NuGet copies for .NET 8 and later consumers: a RID-specific publish receives only
+that architecture's files beside the application. Their `buildTransitive/net462`
+targets apply only to .NET Framework consumers, copying both architectures under
+`runtimes/`, which NuGet does not do for them. .NET Framework projects must use
+`PackageReference`; `packages.config` is not supported. When an SDK-style .NET
+Framework project has a runtime identifier, whether set explicitly or inferred
+from an x64 `PlatformTarget`, NuGet also copies that architecture's files beside
+the application; the loader prefers the `runtimes/` copies. The WPF package
+obtains native files through its dependencies.
 
 NUnit integration tests load the real native library, run real ConPTY shells,
 round-trip color queries through a native console test program, exercise WPF
@@ -223,7 +231,9 @@ state. CI runs the four managed test suites sequentially on x64. ARM64 binaries
 are cross-compiled; runtime validation requires an ARM64 Windows host. The package
 check uses a fresh isolated NuGet cache, verifies dependency direction and native
 asset ownership, and runs twelve consumers: core, UI-free Win32 transport, and WPF,
-each on its four supported frameworks.
+each on its four supported frameworks. It also publishes the .NET 10 WPF consumer for
+`win-x64` and `win-arm64` and requires exactly one set of that architecture's native
+files beside the application, running the publish that matches the host.
 
 The sample offers Command Prompt and Windows PowerShell restart buttons, process
 status, and a scrollable sidebar for its 20 local shortcuts. Each restart button

@@ -6,7 +6,7 @@
     <PackageTags>terminal;ghostty;conpty;windows</PackageTags>
   </PropertyGroup>
   <ItemGroup>
-    <None Include="buildTransitive/Brows.TTY.Win32.targets" Pack="true" PackagePath="buildTransitive/" />
+    <None Include="buildTransitive/net462/Brows.TTY.Win32.targets" Pack="true" PackagePath="buildTransitive/net462/" />
     <ProjectReference Include="../Brows.TTY/Brows.TTY.csproj" />
     <None Include="../../out/native/win-x64/bin/brows-tty-win32.dll"
           Link="runtimes/win-x64/native/brows-tty-win32.dll"

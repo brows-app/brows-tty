@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows Code Fix"
+  short_description: "Fix numbered review findings with verified results"
+  default_prompt: "Use $brows-code-fix to fix the specified issues in the review document, verify them, and update their resolution status."

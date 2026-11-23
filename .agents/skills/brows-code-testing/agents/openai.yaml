@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows Code Testing"
+  short_description: "Write and run focused NUnit tests in .NET projects"
+  default_prompt: "Use $brows-code-testing to add and run NUnit tests for the affected behavior."

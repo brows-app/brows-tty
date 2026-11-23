@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows Code Review"
+  short_description: "Evidence-based code reviews with saved findings"
+  default_prompt: "Use $brows-code-review to review these changes and write actionable findings to agents/reviews."

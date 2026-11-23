@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows Code Plan"
+  short_description: "Plan substantial code changes for a clear handoff"
+  default_prompt: "Use $brows-code-plan to plan the requested code changes and save an implementation-ready document under agents/plans without committing it."

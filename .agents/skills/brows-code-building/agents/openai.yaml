@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows Code Building"
+  short_description: "Build .NET and Visual C++ projects and run NUnit suites"
+  default_prompt: "Use $brows-code-building to build and validate the affected projects."

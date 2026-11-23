@@ -1,0 +1,4 @@
+interface:
+  display_name: "Brows C# Conventions"
+  short_description: "Apply C# and .NET project conventions"
+  default_prompt: "Use $brows-csharp when writing or editing C# code."

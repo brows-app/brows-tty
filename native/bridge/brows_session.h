@@ -15,4 +15,11 @@ BT_WIN32_API int bt_session_dropped_input(bt_session* session);
 BT_WIN32_API void bt_session_stop(bt_session* session);
 BT_WIN32_API void bt_session_free(bt_session* session);
 BT_WIN32_API uint32_t bt_win32_key(uint32_t virtual_key);
+/* Returns 1 when key events should be sent as win32-input-mode records: ConPTY
+ * has requested mode 9001 and Ghostty is using its default keyboard encoding. */
+BT_WIN32_API int bt_session_win32_input(bt_session* session);
+/* Queues one win32-input-mode key record: CSI Vk;Sc;Uc;Kd;Cs;Rc _ */
+BT_WIN32_API int bt_session_win32_key(bt_session* session, uint16_t virtual_key, uint16_t scan_code,
+                                      uint16_t character, int key_down, uint32_t control_key_state,
+                                      uint16_t repeat_count);
 #endif

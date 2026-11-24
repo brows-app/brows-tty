@@ -1,17 +1,18 @@
 #include <windows.h>
+#include <string.h>
 
 /* Echoes raw console input as hexadecimal so integration tests can verify the
  * escape sequences that reach a child process. Enables virtual terminal input
- * so ConPTY forwards terminal input uninterpreted, and requests Kitty keyboard
- * flags 2 and 8 (report event types and all keys as escape codes). */
-int main(void) {
+ * and requests either Kitty flags 2 and 8 or xterm modifyOtherKeys mode 2. */
+int main(int argc, char** argv) {
     HANDLE input = GetStdHandle(STD_INPUT_HANDLE);
     HANDLE output = GetStdHandle(STD_OUTPUT_HANDLE);
     if (!SetConsoleCP(CP_UTF8)) { return 5; }
     if (!SetConsoleMode(input, ENABLE_VIRTUAL_TERMINAL_INPUT)) { return 1; }
-    const char flags[] = "\x1b[=10;1u";
+    int xterm = argc == 2 && strcmp(argv[1], "--modify-other-keys") == 0;
+    const char* flags = xterm ? "\x1b[>4;2m" : "\x1b[=10;1u";
     DWORD written;
-    if (!WriteFile(output, flags, sizeof(flags) - 1, &written, NULL)) { return 2; }
+    if (!WriteFile(output, flags, (DWORD)strlen(flags), &written, NULL)) { return 2; }
     const char ready[] = "key-echo-ready\n";
     if (!WriteFile(output, ready, sizeof(ready) - 1, &written, NULL)) { return 3; }
     DWORD start = GetTickCount();
@@ -30,5 +31,10 @@ int main(void) {
         }
         line[used++] = '\n';
         if (!WriteFile(output, line, (DWORD)used, &written, NULL)) { return 4; }
+        if (xterm && memchr(bytes, '!', read)) {
+            const char reset[] = "\x1b[>4mkey-echo-reset\n";
+            if (!WriteFile(output, reset, sizeof(reset) - 1, &written, NULL)) { return 4; }
+            xterm = 0;
+        }
     }
 }

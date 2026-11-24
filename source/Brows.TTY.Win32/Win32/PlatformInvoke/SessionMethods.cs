@@ -32,4 +32,12 @@ internal static class SessionMethods {
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     internal static extern void bt_session_free(IntPtr session);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int bt_session_win32_input(SessionHandle session);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    internal static extern int bt_session_win32_key(SessionHandle session, ushort virtualKey, ushort scanCode,
+                                                    ushort character, int keyDown, uint controlKeyState,
+                                                    ushort repeatCount);
 }

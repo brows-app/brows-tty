@@ -51,8 +51,8 @@ Windows/.NET runtime; an emulated x64 process loads the x64 native libraries.
 
 ### Keyboard shortcuts
 
-Focus the terminal to type commands. Brows.TTY handles the shortcuts below;
-other keys are encoded by Ghostty using the application's active terminal modes.
+Focus the terminal to type commands. Brows.TTY handles the shortcuts below
+and sends other keys using the active keyboard protocol.
 
 | Shortcut | Action |
 |---|---|
@@ -157,6 +157,16 @@ input queue, Ghostty parsing and state, and terminal input encoding. Shell outpu
 feeds Ghostty directly without a managed callback or dispatcher hop. Native code
 resolves colors and graphemes and exposes dirty rows in batches. Synchronization
 protects frame snapshots from concurrent terminal writes.
+
+ConPTY converts terminal input into console key records and requests
+win32-input-mode (`CSI ? 9001 h`) so that records keep their key identity and
+modifiers. Once ConPTY has requested it, key presses and releases are sent as
+win32-input-mode records, so console applications receive keys such as
+Shift+Enter and Ctrl+Enter with their modifiers. Applications that enable Kitty
+keyboard flags or xterm `modifyOtherKeys` mode 2 receive Ghostty's sequences
+through ConPTY's VT input path. A VT reader that requests neither protocol
+receives a plain carriage return for Shift+Enter when mode 9001 is active.
+Composed and IME text is sent as UTF-8 text.
 
 WPF retains frozen row drawings, groups backgrounds and ASCII glyph runs, and
 rebuilds changed rows at up to approximately 60 frames per second. Text blink has

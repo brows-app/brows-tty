@@ -83,6 +83,8 @@ try {
       (Join-Path $root 'tests/native/ColorQuery.c'), '-o', (Join-Path $testDestination 'color-query.exe'))
     Invoke-Checked $zig @('cc', '-target', $target, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
       (Join-Path $root 'tests/native/KeyEcho.c'), '-o', (Join-Path $testDestination 'key-echo.exe'))
+    Invoke-Checked $zig @('cc', '-target', $target, '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+      (Join-Path $root 'tests/native/KeyRecords.c'), '-o', (Join-Path $testDestination 'key-records.exe'))
     Get-FileHash (Join-Path $destination 'bin/*.dll') -Algorithm SHA256
   }
 }

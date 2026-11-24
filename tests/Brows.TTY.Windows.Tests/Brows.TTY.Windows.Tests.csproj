@@ -6,5 +6,7 @@
           Link="helpers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../out/native-tests/*/key-echo.exe"
           Link="helpers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../out/native-tests/*/key-records.exe"
+          Link="helpers/%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

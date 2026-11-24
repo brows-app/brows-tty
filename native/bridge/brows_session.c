@@ -2,10 +2,28 @@
 #include <windows.h>
 #include <conpty.h>
 #include <ghostty/vt/key/event.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <wchar.h>
 #include <stdbool.h>
+
+#define BT_WIN32_INPUT_MODE 9001
+
+/* Tracks DECSET/DECRST of win32-input-mode in ConPTY output. Ghostty ignores
+ * the private mode, so the transport records ConPTY's request itself. */
+typedef enum {
+    MODE_SCAN_GROUND,
+    MODE_SCAN_ESCAPE,
+    MODE_SCAN_CSI,
+    MODE_SCAN_PRIVATE
+} mode_scan_state;
+
+typedef struct {
+    mode_scan_state state;
+    uint32_t parameter;
+    bool matched;
+} mode_scanner;
 
 typedef struct input_chunk {
     struct input_chunk* next;
@@ -28,9 +46,11 @@ struct bt_session {
     input_chunk* first;
     input_chunk* last;
     size_t queued_bytes;
+    mode_scanner mode_scan;
     volatile LONG stopping;
     volatile LONG error;
     volatile LONG dropped_input;
+    volatile LONG win32_input_mode;
 };
 
 static int win32_error(void) {
@@ -75,12 +95,58 @@ static void enqueue(void* context, const uint8_t* bytes, size_t length) {
     SetEvent(session->ready);
 }
 
+static void scan_private_parameter(bt_session* session) {
+    if (session->mode_scan.parameter == BT_WIN32_INPUT_MODE) { session->mode_scan.matched = true; }
+    session->mode_scan.parameter = 0;
+}
+
+/* Only the reader thread scans; the scanner state persists across reads so a
+ * sequence split between chunks is still recognized. */
+static void scan_modes(bt_session* session, const uint8_t* bytes, size_t length) {
+    mode_scanner* scan = &session->mode_scan;
+    for (size_t index = 0; index < length; index++) {
+        uint8_t c = bytes[index];
+        if (c == 0x1b) {
+            scan->state = MODE_SCAN_ESCAPE;
+            continue;
+        }
+        switch (scan->state) {
+            case MODE_SCAN_GROUND:
+                break;
+            case MODE_SCAN_ESCAPE:
+                scan->state = c == '[' ? MODE_SCAN_CSI : MODE_SCAN_GROUND;
+                break;
+            case MODE_SCAN_CSI:
+                scan->parameter = 0;
+                scan->matched = false;
+                scan->state = c == '?' ? MODE_SCAN_PRIVATE : MODE_SCAN_GROUND;
+                break;
+            case MODE_SCAN_PRIVATE:
+                if (c >= '0' && c <= '9') {
+                    if (scan->parameter <= 100000) { scan->parameter = scan->parameter * 10 + (c - '0'); }
+                    break;
+                }
+                if (c == ';') {
+                    scan_private_parameter(session);
+                    break;
+                }
+                if (c == 'h' || c == 'l') {
+                    scan_private_parameter(session);
+                    if (scan->matched) { InterlockedExchange(&session->win32_input_mode, c == 'h'); }
+                }
+                scan->state = MODE_SCAN_GROUND;
+                break;
+        }
+    }
+}
+
 static DWORD WINAPI read_output(void* context) {
     bt_session* session = context;
     uint8_t bytes[65536];
     DWORD read;
     while (ReadFile(session->output, bytes, sizeof(bytes), &read, NULL)) {
         if (!read) { return 0; }
+        scan_modes(session, bytes, read);
         bt_lock(session->terminal);
         bt_write(session->terminal, bytes, read);
         bt_unlock(session->terminal);
@@ -273,6 +339,25 @@ int bt_session_dropped_input(bt_session* session) {
     /* Observing a dropped input chunk clears it; the session stays usable. */
     DWORD dropped = (DWORD)InterlockedExchange(&session->dropped_input, 0);
     return dropped ? (int)HRESULT_FROM_WIN32(dropped) : 0;
+}
+
+int bt_session_win32_input(bt_session* session) {
+    if (!InterlockedCompareExchange(&session->win32_input_mode, 0, 0)) { return 0; }
+    bt_lock(session->terminal);
+    int use_records = bt_uses_legacy_key_encoding(session->terminal);
+    bt_unlock(session->terminal);
+    return use_records;
+}
+
+int bt_session_win32_key(bt_session* session, uint16_t virtual_key, uint16_t scan_code, uint16_t character,
+                         int key_down, uint32_t control_key_state, uint16_t repeat_count) {
+    char sequence[64];
+    int length = snprintf(sequence, sizeof(sequence), "\x1b[%u;%u;%u;%u;%lu;%u_",
+        (unsigned)virtual_key, (unsigned)scan_code, (unsigned)character, key_down ? 1u : 0u,
+        (unsigned long)control_key_state, (unsigned)repeat_count);
+    if (length <= 0 || (size_t)length >= sizeof(sequence)) { return E_UNEXPECTED; }
+    enqueue(session, (const uint8_t*)sequence, (size_t)length);
+    return 0;
 }
 
 uint32_t bt_win32_key(uint32_t key) {

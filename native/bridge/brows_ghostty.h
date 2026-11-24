@@ -64,6 +64,10 @@ BT_API int bt_key(bt_terminal* terminal, uint32_t key, uint16_t modifiers,
                   const uint8_t* text, size_t text_length);
 BT_API int bt_paste(bt_terminal* terminal, uint8_t* text, size_t length);
 BT_API int bt_focus(bt_terminal* terminal, int focused);
+/* Reports the Kitty keyboard protocol flags the application has enabled. */
+BT_API int bt_kitty_keyboard_flags(bt_terminal* terminal, uint8_t* flags);
+/* Caller holds the terminal lock. Returns 1 for the default keyboard encoding. */
+BT_API int bt_uses_legacy_key_encoding(bt_terminal* terminal);
 /* bottom is -1 for top, 0 for delta, and 1 for bottom. */
 BT_API void bt_scroll(bt_terminal* terminal, int32_t lines, int bottom);
 BT_API int bt_mouse(bt_terminal* terminal, uint32_t action, uint32_t button,

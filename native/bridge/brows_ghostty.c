@@ -74,7 +74,7 @@ static void render_hold(GhosttyTerminal terminal, void* userdata, bool held) {
     t->held = held;
 }
 
-uint32_t bt_abi_version(void) { return 3; }
+uint32_t bt_abi_version(void) { return 4; }
 void bt_lock(bt_terminal* t) { bt_mutex_lock(&t->gate); }
 void bt_unlock(bt_terminal* t) { bt_mutex_unlock(&t->gate); }
 
@@ -271,9 +271,9 @@ int bt_next_row(bt_terminal* t, uint16_t* y, const bt_cell** cells, const uint8_
 int bt_end_frame(bt_terminal* t) { return ghostty_render_state_clean(t->render); }
 
 
-int bt_key(bt_terminal* t, uint32_t key, uint16_t modifiers, uint32_t action,
-           uint32_t unshifted_codepoint, uint16_t consumed_modifiers,
-           const uint8_t* text, size_t length) {
+static int prepare_key(bt_terminal* t, uint32_t key, uint16_t modifiers, uint32_t action,
+                       uint32_t unshifted_codepoint, uint16_t consumed_modifiers,
+                       const uint8_t* text, size_t length) {
     ghostty_key_encoder_setopt_from_terminal(t->keys, t->terminal);
     CHECK(ghostty_key_event_set_action(t->key, (GhosttyKeyAction)action));
     CHECK(ghostty_key_event_set_key(t->key, (GhosttyKey)key));
@@ -281,6 +281,13 @@ int bt_key(bt_terminal* t, uint32_t key, uint16_t modifiers, uint32_t action,
     ghostty_key_event_set_consumed_mods(t->key, consumed_modifiers);
     ghostty_key_event_set_utf8(t->key, (const char*)text, length);
     ghostty_key_event_set_unshifted_codepoint(t->key, unshifted_codepoint);
+    return 0;
+}
+
+int bt_key(bt_terminal* t, uint32_t key, uint16_t modifiers, uint32_t action,
+           uint32_t unshifted_codepoint, uint16_t consumed_modifiers,
+           const uint8_t* text, size_t length) {
+    CHECK(prepare_key(t, key, modifiers, action, unshifted_codepoint, consumed_modifiers, text, length));
     CHECK(reserve((void**)&t->encoded, &t->encoded_capacity, length + 128));
     size_t written = 0;
     int result = ghostty_key_encoder_encode(t->keys, t->key, (char*)t->encoded, t->encoded_capacity, &written);
@@ -313,6 +320,27 @@ int bt_focus(bt_terminal* t, int focused) {
     CHECK(ghostty_focus_encode(focused ? GHOSTTY_FOCUS_GAINED : GHOSTTY_FOCUS_LOST, bytes, sizeof(bytes), &length));
     write_pty(t->terminal, t, (const uint8_t*)bytes, length);
     return 0;
+}
+
+int bt_kitty_keyboard_flags(bt_terminal* t, uint8_t* flags) {
+    *flags = 0;
+    return ghostty_terminal_get(t->terminal, GHOSTTY_TERMINAL_DATA_KITTY_KEYBOARD_FLAGS, flags);
+}
+
+int bt_uses_legacy_key_encoding(bt_terminal* t) {
+    uint8_t flags;
+    if (bt_kitty_keyboard_flags(t, &flags) != 0 || flags != 0) { return 0; }
+    /* Ghostty exposes no modifyOtherKeys getter. With Kitty off, Shift+Tab
+     * encodes as CSI Z normally and CSI 27;2;9~ in mode 2. Only the known
+     * normal result permits Win32 records. Probe bytes stay on the stack. */
+    if (prepare_key(t, GHOSTTY_KEY_TAB, GHOSTTY_MODS_SHIFT, GHOSTTY_KEY_ACTION_PRESS, 0, 0, NULL, 0) != 0) {
+        return 0;
+    }
+    static const char normal[] = "\x1b[Z";
+    char bytes[16];
+    size_t written = 0;
+    int result = ghostty_key_encoder_encode(t->keys, t->key, bytes, sizeof(bytes), &written);
+    return result == 0 && written == sizeof(normal) - 1 && memcmp(bytes, normal, written) == 0;
 }
 
 void bt_scroll(bt_terminal* t, int32_t lines, int bottom) {
